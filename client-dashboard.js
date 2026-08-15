@@ -1,0 +1,14 @@
+const $=selector=>document.querySelector(selector);
+const profileButton=$('#profileButton'),profileMenu=$('#profileMenu');
+profileButton.addEventListener('click',()=>profileMenu.classList.toggle('open'));
+document.addEventListener('click',event=>{if(!event.target.closest('.profile'))profileMenu.classList.remove('open')});
+const assetModal=$('#assetModal');
+$('#editAssets').addEventListener('click',()=>assetModal.showModal());
+assetModal.querySelector('.close').addEventListener('click',()=>assetModal.close());
+assetModal.addEventListener('click',event=>{if(event.target===assetModal)assetModal.close()});
+$('#assetForm').addEventListener('submit',event=>{event.preventDefault();assetModal.close();$('#editAssets').textContent='Asset link updated ✓'});
+const support=$('#supportPanel'),backdrop=$('#backdrop');
+const toggleSupport=open=>{support.classList.toggle('open',open);backdrop.classList.toggle('open',open)};
+$('#supportOpen').addEventListener('click',()=>toggleSupport(true));$('#supportClose').addEventListener('click',()=>toggleSupport(false));backdrop.addEventListener('click',()=>toggleSupport(false));
+let rating=0;document.querySelectorAll('.stars button').forEach(button=>button.addEventListener('click',()=>{rating=Number(button.dataset.rating);document.querySelectorAll('.stars button').forEach(star=>star.classList.toggle('selected',Number(star.dataset.rating)<=rating))}));
+$('#feedbackForm').addEventListener('submit',event=>{event.preventDefault();if(!rating){alert('Please select a star rating first.');return}event.currentTarget.innerHTML='<strong>Thank you — your feedback has been sent for approval.</strong>'});
