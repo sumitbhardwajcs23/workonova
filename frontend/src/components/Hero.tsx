@@ -28,8 +28,9 @@ export default function Hero({ onOpenSignup }: HeroProps) {
         className="hero-video"
         autoPlay muted loop playsInline
         aria-hidden="true"
+        disablePictureInPicture
       >
-        <source src="/assets/workonova-hero.mp4" type="video/mp4" />
+        <source src="/assets/hero.mp4" type="video/mp4" />
       </video>
       
       {/* Decorative orbs */}
