@@ -5,8 +5,8 @@ export default defineConfig({
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgres://postgres:password@localhost:5432/worknova',
+    url: process.env.DATABASE_URL || '',
   },
-  verbose: true,
-  strict: true,
+  verbose: false,
+  strict: false,
 });

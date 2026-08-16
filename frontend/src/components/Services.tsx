@@ -1,4 +1,4 @@
-import React from 'react';
+
 
 const services = [
   { icon: '✦', title: 'Graphic Designing', desc: 'Logos, brand identity, social creatives', action: 'Brand-ready visual design' },

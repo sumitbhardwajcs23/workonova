@@ -1,65 +1,113 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { setToken } from '../utils/auth.js';
+import { API_BASE } from '../config.js';
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialMode?: 'login' | 'signup';
+  initialMode?: 'login' | 'signup' | 'forgot';
 }
 
 type Role = 'client' | 'freelancer';
-type Mode = 'login' | 'signup';
+type Mode = 'login' | 'signup' | 'forgot';
 type ModalView = 'form' | 'otp' | 'success';
 
 const clientServices = [
-  'Graphic Designing', 'Video Editing', '3D Design & Modeling', 'VFX', 
-  'Animation', 'Digital Marketing', 'Website Development', 'Software Development', 
+  'Graphic Designing', 'Video Editing', '3D Design & Modeling', 'VFX',
+  'Animation', 'Digital Marketing', 'Website Development', 'Software Development',
   'App Development', 'AI Services', 'IT Services', 'Cyber Security',
 ];
 
 const freelancerServices = [
-  'Graphic Designing', 'Video Editing', '3D Design & Modeling', 'VFX (Visual Effects)',
-  'Motion Graphics', 'Digital Marketing', 'Website Development', 'Software Development',
-  'Mobile App Dev', 'AI Services & Automation',
+  'Graphic Designing', 'Video Editing', '3D Design & Modeling', 'VFX',
+  'Animation', 'Digital Marketing', 'Website Development', 'Software Development',
+  'App Development', 'AI Services', 'IT Services', 'Cyber Security',
 ];
+
+function AuthField({ label, name, type = 'text', placeholder = '', id, value, onChange }: {
+  label: string; name: string; type?: string; placeholder?: string; id?: string;
+  value: string; onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+}) {
+  return (
+    <div>
+      <label className="am-label" htmlFor={id || name}>{label}</label>
+      <input id={id || name} className="am-input" type={type} name={name}
+        placeholder={placeholder} required
+        value={value} onChange={onChange} />
+    </div>
+  );
+}
+
+function AuthSelect({ label, name, options, value, onChange }: {
+  label: string; name: string; options: string[];
+  value: string; onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
+}) {
+  return (
+    <div>
+      <label className="am-label" htmlFor={name}>{label}</label>
+      <select id={name} className="am-input" name={name} required
+        value={value} onChange={onChange as any}>
+        <option value="">Select…</option>
+        {options.map(o => <option key={o}>{o}</option>)}
+      </select>
+    </div>
+  );
+}
 
 export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: AuthModalProps) {
   const [mode, setMode] = useState<Mode>(initialMode);
   const [role, setRole] = useState<Role>('client');
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(1); // Sign-up step
+  const [forgotStep, setForgotStep] = useState(1); // 1: Email, 2: OTP, 3: Reset Pass
   const [view, setView] = useState<ModalView>('form');
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [formData, setFormData] = useState<Record<string, any>>({ services: [] });
+  const [loading, setLoading] = useState(false);
+
+  // Forgot password specific states
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [resetToken, setResetToken] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+
   const navigate = useNavigate();
 
+  // Reset on open
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
       setRole('client');
       setStep(1);
+      setForgotStep(1);
       setView('form');
       setError('');
+      setSuccessMsg('');
+      setOtp(['', '', '', '', '', '']);
       setFormData({ services: [] });
+      setLoading(false);
+      setForgotEmail('');
+      setResetToken('');
+      setNewPassword('');
+      setConfirmNewPassword('');
     }
   }, [isOpen, initialMode]);
 
-  // Lock body scroll when modal open
+  // Lock body scroll
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
+    document.body.style.overflow = isOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleInput = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+  const handleInput = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
   };
 
-  const handleCheck = (value: string, checked: boolean) => {
+  const toggleService = (value: string, checked: boolean) => {
     setFormData(prev => ({
       ...prev,
       services: checked
@@ -68,356 +116,595 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
     }));
   };
 
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    navigate(role === 'freelancer' ? '/freelancer-dashboard' : '/client-dashboard');
-    onClose();
+  const handleOtpChange = (index: number, value: string) => {
+    if (!/^\d?$/.test(value)) return;
+    const next = [...otp];
+    next[index] = value;
+    setOtp(next);
+    if (value && index < 5) {
+      const nextInput = document.getElementById(`otp-${index + 1}`);
+      nextInput?.focus();
+    }
   };
 
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !otp[index] && index > 0) {
+      document.getElementById(`otp-${index - 1}`)?.focus();
+    }
+  };
+
+  // ── Login ──
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const email = formData['login-email'];
+    const password = formData['login-password'];
+
+    if (!email || !password) {
+      setError('Please fill in all fields.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (res.status === 403 && data.error && data.error.toLowerCase().includes('verify')) {
+          // It requires verification, let's trigger sending the OTP & show the OTP screen
+          await fetch(`${API_BASE}/api/auth/send-otp`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, name: 'User' }),
+          });
+          setFormData(prev => ({ ...prev, email }));
+          setView('otp');
+          setError('Email not verified. We sent a verification code to your email.');
+          setLoading(false);
+          return;
+        }
+        throw new Error(data.error || 'Login failed');
+      }
+
+      setToken(data.token);
+      setLoading(false);
+      onClose();
+
+      // Navigate based on actual role returned by backend
+      const userRole = data.user.role;
+      if (userRole === 'admin' || userRole === 'qa_admin') {
+        navigate('/admin-dashboard');
+      } else if (userRole === 'freelancer') {
+        navigate('/freelancer-dashboard');
+      } else {
+        navigate('/client-dashboard');
+      }
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message);
+    }
+  };
+
+  // ── Signup steps ──
   const maxSteps = role === 'client' ? 2 : 4;
 
   const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    if (step === 1 && formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match.');
-      return;
+    if (step === 1) {
+      if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
+        setError('Please fill in all fields.'); return;
+      }
+      if (formData.password !== formData.confirmPassword) {
+        setError('Passwords do not match.'); return;
+      }
+      if (formData.password.length < 8) {
+        setError('Password must be at least 8 characters.'); return;
+      }
     }
-    if ((step === 2) && !formData.services?.length) {
-      setError('Please select at least one service.');
-      return;
+    if (step === 2 && !(formData.services || []).length) {
+      setError('Please select at least one service.'); return;
     }
     if (step < maxSteps) {
       setStep(s => s + 1);
     } else {
-      setView('otp');
+      handleRegisterSubmit();
     }
   };
 
-  const handleOtp = (e: React.FormEvent) => {
+  // ── Register ──
+  const handleRegisterSubmit = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: formData.name,
+          email: formData.email,
+          password: formData.password,
+          role,
+          services: formData.services || [],
+          portfolioLink: formData.portfolio || '',
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Registration failed');
+
+      // Keep token for verification later
+      setToken(data.token);
+      setLoading(false);
+      setView('otp');
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message);
+    }
+  };
+
+  // ── OTP verify (For registration) ──
+  const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    setView('success');
+    setError('');
+    const code = otp.join('');
+    if (code.length < 6) { setError('Please enter the complete 6-digit code.'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: formData.email, otp: code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Verification failed');
+
+      // Save the new fully verified token
+      setToken(data.token);
+
+      setLoading(false);
+      setView('success');
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message);
+    }
+  };
+
+  // ── Forgot Password OTP request ──
+  const handleForgotEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!forgotEmail) { setError('Email address is required.'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/forgot-password/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Request failed');
+
+      setOtp(['', '', '', '', '', '']);
+      setForgotStep(2);
+      setLoading(false);
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message);
+    }
+  };
+
+  // ── Forgot Password OTP verification ──
+  const handleForgotOtpSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    const code = otp.join('');
+    if (code.length < 6) { setError('Please enter the complete 6-digit code.'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/forgot-password/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: forgotEmail, otp: code }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'OTP verification failed');
+
+      setResetToken(data.resetToken);
+      setForgotStep(3);
+      setLoading(false);
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message);
+    }
+  };
+
+  // ── Reset to new password ──
+  const handlePasswordResetSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!newPassword || !confirmNewPassword) { setError('Please fill all fields.'); return; }
+    if (newPassword !== confirmNewPassword) { setError('Passwords do not match.'); return; }
+    if (newPassword.length < 8) { setError('Password must be at least 8 characters.'); return; }
+
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/forgot-password/reset`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resetToken, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Reset password failed');
+
+      setSuccessMsg('Your password has been successfully reset. Please log in.');
+      setMode('login');
+      setForgotStep(1);
+      setView('form');
+      setLoading(false);
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message);
+    }
   };
 
   const handleDone = () => {
-    navigate(role === 'freelancer' ? '/freelancer-dashboard' : '/client-dashboard');
     onClose();
+    if (role === 'freelancer') {
+      navigate('/freelancer-dashboard');
+    } else {
+      navigate('/client-dashboard');
+    }
   };
 
-  const switchMode = (newMode: Mode) => {
-    setMode(newMode);
-    setStep(1);
-    setView('form');
-    setError('');
-    setFormData({ services: [] });
+  const switchMode = (m: Mode) => {
+    setMode(m); setStep(1); setForgotStep(1); setView('form');
+    setError(''); setSuccessMsg(''); setFormData({ services: [] }); setOtp(['', '', '', '', '', '']);
+    setForgotEmail(''); setResetToken(''); setNewPassword(''); setConfirmNewPassword('');
   };
 
-  const switchRole = (newRole: Role) => {
-    setRole(newRole);
-    setStep(1);
-    setView('form');
-    setError('');
-    setFormData({ services: [] });
+  const switchRole = (r: Role) => {
+    setRole(r); setStep(1); setForgotStep(1); setView('form');
+    setError(''); setSuccessMsg(''); setFormData({ services: [] }); setOtp(['', '', '', '', '', '']);
   };
 
   const renderProgress = () => (
-    <div style={{ marginBottom: '20px' }}>
-      <div className="freelancer-progress">
-        {Array.from({ length: maxSteps }, (_, i) => (
-          <span key={i + 1} className={i + 1 <= step ? 'is-active' : ''}>{i + 1}</span>
-        ))}
-        <span className="freelancer-step-label" style={{ marginLeft: 'auto' }}>
-          STEP {step} OF {maxSteps}
-        </span>
-      </div>
+    <div className="am-progress">
+      {Array.from({ length: maxSteps }, (_, i) => (
+        <span key={i} className={i + 1 <= step ? 'am-progress-dot active' : 'am-progress-dot'} />
+      ))}
+      <span className="am-step-lbl">Step {step} of {maxSteps}</span>
     </div>
   );
 
-  const InputField = ({
-    label, name, type = 'text', placeholder = '', required = true,
-  }: { label: string; name: string; type?: string; placeholder?: string; required?: boolean }) => (
-    <div>
-      <label className="form-label" htmlFor={name}>{label}</label>
-      <input
-        id={name}
-        className="form-input"
-        type={type}
-        name={name}
-        placeholder={placeholder}
-        required={required}
-        value={formData[name] || ''}
-        onChange={handleInput}
-      />
-    </div>
-  );
+  const renderClientStep = () => {
+    if (step === 1) return (
+      <>
+        <h3 className="am-heading">Basic information</h3>
+        <p className="am-help">Create your account to start your first project.</p>
+        <div className="am-fields">
+          <AuthField label="Full name" name="name" placeholder="Jane Smith" value={formData['name'] || ''} onChange={handleInput} />
+          <AuthField label="Email address" name="email" type="email" placeholder="you@company.com" value={formData['email'] || ''} onChange={handleInput} />
+          <AuthField label="Password" name="password" type="password" placeholder="Minimum 8 characters" value={formData['password'] || ''} onChange={handleInput} />
+          <AuthField label="Confirm password" name="confirmPassword" type="password" placeholder="Repeat password" value={formData['confirmPassword'] || ''} onChange={handleInput} />
+        </div>
+      </>
+    );
+    return (
+      <>
+        <h3 className="am-heading">What do you need?</h3>
+        <p className="am-help">Select services you're interested in.</p>
+        <div className="am-checkgrid">
+          {clientServices.map(s => (
+            <label key={s} className="am-check">
+              <input type="checkbox" checked={(formData.services || []).includes(s)}
+                onChange={e => toggleService(s, e.target.checked)} />
+              {s}
+            </label>
+          ))}
+        </div>
+      </>
+    );
+  };
 
-  const SelectField = ({
-    label, name, options,
-  }: { label: string; name: string; options: string[] }) => (
-    <div>
-      <label className="form-label" htmlFor={name}>{label}</label>
-      <select
-        id={name}
-        className="form-input"
-        name={name}
-        required
-        value={formData[name] || ''}
-        onChange={handleInput}
-      >
-        <option value="">Select…</option>
-        {options.map(o => <option key={o}>{o}</option>)}
-      </select>
-    </div>
-  );
+  const renderFreelancerStep = () => {
+    if (step === 1) return (
+      <>
+        <h3 className="am-heading">Basic information</h3>
+        <p className="am-help">Tell us how we can reach you.</p>
+        <div className="am-fields">
+          <div className="am-split">
+            <AuthField label="Full name" name="name" placeholder="Jane Smith" value={formData['name'] || ''} onChange={handleInput} />
+            <AuthField label="Email" name="email" type="email" placeholder="you@example.com" value={formData['email'] || ''} onChange={handleInput} />
+          </div>
+          <AuthField label="Phone / WhatsApp" name="phone" type="tel" placeholder="+91 98765 43210" value={formData['phone'] || ''} onChange={handleInput} />
+          <div className="am-split">
+            <AuthField label="Password" name="password" type="password" placeholder="Create a password" value={formData['password'] || ''} onChange={handleInput} />
+            <AuthField label="Confirm password" name="confirmPassword" type="password" placeholder="Repeat" value={formData['confirmPassword'] || ''} onChange={handleInput} />
+          </div>
+        </div>
+      </>
+    );
+    if (step === 2) return (
+      <>
+        <h3 className="am-heading">Area of expertise</h3>
+        <p className="am-help">What services can you provide?</p>
+        <div className="am-checkgrid">
+          {freelancerServices.map(s => (
+            <label key={s} className="am-check">
+              <input type="checkbox" checked={(formData.services || []).includes(s)}
+                onChange={e => toggleService(s, e.target.checked)} />
+              {s}
+            </label>
+          ))}
+        </div>
+      </>
+    );
+    if (step === 3) return (
+      <>
+        <h3 className="am-heading">Proof of work</h3>
+        <p className="am-help">Share work that showcases your expertise.</p>
+        <div className="am-fields">
+          <AuthField label="Primary tech / creative stack" name="techStack" placeholder="e.g., React, After Effects, Blender" value={formData['techStack'] || ''} onChange={handleInput} />
+          <AuthField label="Portfolio / GitHub URL" name="portfolio" type="url" placeholder="https://…" value={formData['portfolio'] || ''} onChange={handleInput} />
+          <AuthField label="Live project links (comma-separated)" name="liveProjects" placeholder="link1, link2" value={formData['liveProjects'] || ''} onChange={handleInput} />
+        </div>
+      </>
+    );
+    return (
+      <>
+        <h3 className="am-heading">Availability & payout</h3>
+        <p className="am-help">Help us match you with the right projects.</p>
+        <div className="am-fields">
+          <AuthSelect label="Years of experience" name="experience"
+            options={['Fresher', '1–3 Years', '3–5 Years', '5+ Years']} value={formData['experience'] || ''} onChange={handleInput} />
+          <AuthSelect label="Hours per week available" name="capacity"
+            options={['< 10 hrs', '10–20 hrs', '20–40 hrs', 'Full-time (40+ hrs)']} value={formData['capacity'] || ''} onChange={handleInput} />
+        </div>
+      </>
+    );
+  };
 
-  const renderClientForm = () => (
-    <>
-      {renderProgress()}
-      {step === 1 && (
-        <>
-          <h3 className="form-heading">Basic information</h3>
-          <p className="form-help">Create your account to start your first project.</p>
-          <div className="form-group">
-            <InputField label="Full name" name="name" placeholder="Jane Smith" />
-            <InputField label="Email address" name="email" type="email" placeholder="you@company.com" />
-            <InputField label="Password" name="password" type="password" placeholder="Minimum 8 characters" />
-            <InputField label="Confirm password" name="confirmPassword" type="password" placeholder="Repeat your password" />
-          </div>
-        </>
-      )}
-      {step === 2 && (
-        <>
-          <h3 className="form-heading">What do you need?</h3>
-          <p className="form-help">Select the services you are interested in. You can always change this later.</p>
-          <div className="service-options">
-            {clientServices.map(s => (
-              <label key={s} className="service-option-label">
-                <input
-                  type="checkbox"
-                  checked={(formData.services || []).includes(s)}
-                  onChange={e => handleCheck(s, e.target.checked)}
-                />
-                {s}
-              </label>
-            ))}
-          </div>
-        </>
-      )}
-    </>
-  );
+  const handleResendOtp = async () => {
+    setError('');
+    try {
+      const email = mode === 'forgot' ? forgotEmail : formData.email;
+      const type = mode === 'forgot' ? 'forgot_password' : 'verify_email';
+      const endpoint = type === 'forgot_password' ? '/api/auth/forgot-password/send-otp' : '/api/auth/send-otp';
 
-  const renderFreelancerForm = () => (
-    <>
-      {renderProgress()}
-      {step === 1 && (
-        <>
-          <h3 className="form-heading">Basic information</h3>
-          <p className="form-help">Tell us how we can contact you about suitable projects.</p>
-          <div className="form-group">
-            <div className="form-split">
-              <InputField label="Full name" name="name" placeholder="Jane Smith" />
-              <InputField label="Email address" name="email" type="email" placeholder="you@example.com" />
-            </div>
-            <InputField label="Phone / WhatsApp" name="phone" type="tel" placeholder="+91 98765 43210" />
-            <div className="form-split">
-              <InputField label="Password" name="password" type="password" placeholder="Create a password" />
-              <InputField label="Confirm password" name="confirmPassword" type="password" placeholder="Repeat your password" />
-            </div>
-          </div>
-        </>
-      )}
-      {step === 2 && (
-        <>
-          <h3 className="form-heading">Area of expertise</h3>
-          <p className="form-help">What services can you provide? Select all that apply.</p>
-          <div className="service-options">
-            {freelancerServices.map(s => (
-              <label key={s} className="service-option-label">
-                <input
-                  type="checkbox"
-                  checked={(formData.services || []).includes(s)}
-                  onChange={e => handleCheck(s, e.target.checked)}
-                />
-                {s}
-              </label>
-            ))}
-          </div>
-        </>
-      )}
-      {step === 3 && (
-        <>
-          <h3 className="form-heading">Proof of work</h3>
-          <p className="form-help">Share work that helps our team assess your expertise.</p>
-          <div className="form-group">
-            <InputField label="Primary tech / creative stack" name="techStack" placeholder="e.g., React, After Effects, Blender" />
-            <InputField label="Portfolio / GitHub URL" name="portfolio" type="url" placeholder="https://…" />
-            <InputField label="Live project links (min. 2, comma-separated)" name="liveProjects" placeholder="link1, link2" />
-          </div>
-        </>
-      )}
-      {step === 4 && (
-        <>
-          <h3 className="form-heading">Availability & payout</h3>
-          <p className="form-help">Help us match you with projects that fit your schedule.</p>
-          <div className="form-group">
-            <SelectField label="Years of experience" name="experience" options={['Fresher', '1–3 Years', '3–5 Years', '5+ Years']} />
-            <SelectField label="Hours per week available" name="capacity" options={['< 10 hrs', '10–20 hrs', '20–40 hrs', 'Full-time (40+ hrs)']} />
-          </div>
-        </>
-      )}
-    </>
-  );
+      const res = await fetch(`${API_BASE}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, name: formData.name || 'User' }),
+      });
+      if (!res.ok) throw new Error('Resend failed');
+      setError('A new OTP has been sent to your email.');
+    } catch (err: any) {
+      setError('Failed to resend OTP. Please try again.');
+    }
+  };
 
   return (
-    <div className="react-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={`react-modal${view === 'form' && mode === 'signup' ? ' wide' : ''}`} role="dialog" aria-modal="true">
-        <button className="modal-close" onClick={onClose} aria-label="Close">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+    <div className="am-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className={`am-box${view === 'form' && mode === 'signup' ? ' am-wide' : ''}`}
+        role="dialog" aria-modal="true" aria-label="Account">
+
+        {/* Close */}
+        <button className="am-close" onClick={onClose} aria-label="Close">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+            <path d="M1 1l11 11M12 1L1 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
           </svg>
         </button>
 
-        <img className="modal-logo" src="/assets/workonova-logo.webp" alt="Workonova" />
+        {/* Logo */}
+        <img className="am-logo" src="/assets/workonova-logo.webp" alt="Workonova" />
 
-        {/* OTP view */}
+        {/* ── OTP view (Sign-up verification) ── */}
         {view === 'otp' && (
-          <form onSubmit={handleOtp}>
-            <p className="modal-eyebrow">VERIFY YOUR ACCOUNT</p>
-            <h2 className="modal-title">Enter your OTP</h2>
-            <p className="modal-subtitle">We sent a 6-digit code to your email. Please check your inbox.</p>
-            <div className="otp-inputs">
-              {[1,2,3,4,5,6].map(i => (
-                <input
-                  key={i}
-                  aria-label={`OTP digit ${i}`}
-                  inputMode="numeric"
-                  maxLength={1}
-                  required
-                  onInput={e => {
-                    const next = (e.target as HTMLInputElement).nextElementSibling as HTMLInputElement;
-                    if ((e.target as HTMLInputElement).value && next) next.focus();
-                  }}
-                />
+          <form onSubmit={handleVerifyOtp}>
+            <p className="am-eyebrow">VERIFY ACCOUNT</p>
+            <h2 className="am-title">Enter verification code</h2>
+            <p className="am-sub">We sent a 6-digit code to <b>{formData.email}</b></p>
+            <div className="am-otp-row">
+              {otp.map((v, i) => (
+                <input key={i} id={`otp-${i}`} className="am-otp-box"
+                  inputMode="numeric" maxLength={1} value={v}
+                  onChange={e => handleOtpChange(i, e.target.value)}
+                  onKeyDown={e => handleOtpKeyDown(i, e)} />
               ))}
             </div>
-            <p style={{ fontSize: '13px', color: 'var(--ink-muted)', marginBottom: '16px' }}>
-              Didn't receive it?{' '}
-              <button type="button" style={{ background: 'none', border: 'none', color: 'var(--lime)', cursor: 'pointer', fontWeight: 700 }}>
+            {error && <p className="am-error">{error}</p>}
+            <p className="am-resend">Didn't receive it?{' '}
+              <button type="button" className="am-link" onClick={handleResendOtp}>
                 Resend OTP
               </button>
             </p>
-            <button className="btn-submit" type="submit">Verify & create account →</button>
+            <button className="am-submit" type="submit" disabled={loading}>
+              {loading ? 'Verifying…' : 'Verify & enter portal →'}
+            </button>
           </form>
         )}
 
-        {/* Success view */}
+        {/* ── Success view ── */}
         {view === 'success' && (
-          <div style={{ textAlign: 'center', padding: '20px 0' }}>
-            <div className="success-icon">✓</div>
-            <p className="modal-eyebrow" style={{ justifyContent: 'center' }}>ACCOUNT VERIFIED</p>
-            <h2 className="modal-title">You're all set!</h2>
-            <p className="modal-subtitle">Your {role} account has been created successfully. Welcome to Workonova!</p>
-            <button className="btn-submit" onClick={handleDone}>
-              Go to dashboard →
-            </button>
+          <div className="am-success">
+            <div className="am-success-icon">✓</div>
+            <p className="am-eyebrow">ACCOUNT ACTIVATED</p>
+            <h2 className="am-title">Verified!</h2>
+            <p className="am-sub">Welcome to Workonova. Your {role} workspace is ready.</p>
+            <button className="am-submit" onClick={handleDone}>Go to dashboard →</button>
           </div>
         )}
 
-        {/* Main form view */}
+        {/* ── Main form / Forgot Password ── */}
         {view === 'form' && (
           <>
-            {/* Role switch (signup only) */}
+            {/* Signup Form View */}
             {mode === 'signup' && (
-              <div className={`role-switch${role === 'freelancer' ? ' is-freelancer' : ''}`}>
-                <div className="role-switch-indicator" />
-                <button
-                  type="button"
-                  className={role === 'client' ? 'is-active' : ''}
-                  onClick={() => switchRole('client')}
-                >
-                  Client
-                </button>
-                <button
-                  type="button"
-                  className={role === 'freelancer' ? 'is-active' : ''}
-                  onClick={() => switchRole('freelancer')}
-                >
-                  Freelancer
-                </button>
-              </div>
-            )}
-
-            {/* Header */}
-            <p className="modal-eyebrow">
-              {mode === 'login'
-                ? 'WELCOME BACK'
-                : role === 'client' ? 'CLIENT ACCOUNT' : 'FREELANCER ACCOUNT'}
-            </p>
-            <h2 className="modal-title">
-              {mode === 'login'
-                ? `Log in as a ${role}`
-                : `Create your ${role} account`}
-            </h2>
-            <p className="modal-subtitle">
-              {mode === 'login'
-                ? `Log in to manage your Workonova projects and deliveries.`
-                : role === 'client'
-                  ? 'Create an account to choose packages, submit briefs, and track every delivery.'
-                  : 'Create an account to showcase your expertise and receive project opportunities.'}
-            </p>
-
-            {/* Login form */}
-            {mode === 'login' && (
-              <form onSubmit={handleLogin}>
-                <div className="form-group">
-                  <div>
-                    <label className="form-label" htmlFor="email-login">Email address</label>
-                    <input id="email-login" className="form-input" type="email" placeholder="you@company.com" required />
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                      <label className="form-label" htmlFor="password-login">Password</label>
-                      <a href="#" style={{ fontSize: '12px', color: 'var(--lime)', fontWeight: 600 }}>Forgot?</a>
-                    </div>
-                    <input id="password-login" className="form-input" type="password" placeholder="••••••••" required />
-                  </div>
+              <>
+                <div className={`am-role-switch${role === 'freelancer' ? ' is-freelancer' : ''}`}>
+                  <div className="am-role-pill" />
+                  <button type="button" className={role === 'client' ? 'active' : ''}
+                    onClick={() => switchRole('client')}>Client</button>
+                  <button type="button" className={role === 'freelancer' ? 'active' : ''}
+                    onClick={() => switchRole('freelancer')}>Freelancer</button>
                 </div>
-                <button className="btn-submit" type="submit" style={{ marginTop: '20px' }}>
-                  Log in →
-                </button>
-              </form>
-            )}
 
-            {/* Signup form */}
-            {mode === 'signup' && (
-              <form onSubmit={handleSignup}>
-                {role === 'client' ? renderClientForm() : renderFreelancerForm()}
-                
-                {error && <p className="form-error" style={{ marginTop: '12px' }}>{error}</p>}
-                
-                <div className="form-actions" style={{ marginTop: '20px' }}>
-                  {step > 1 ? (
-                    <button
-                      type="button"
-                      className="btn-back"
-                      onClick={() => { setStep(s => s - 1); setError(''); }}
-                    >
-                      ← Back
+                <p className="am-eyebrow">{role === 'client' ? 'CLIENT ACCOUNT' : 'FREELANCER ACCOUNT'}</p>
+                <h2 className="am-title">Create your {role} account</h2>
+                <p className="am-sub">
+                  {role === 'client'
+                    ? 'Choose packages, submit briefs, and track every delivery.'
+                    : 'Showcase your expertise and receive project opportunities.'}
+                </p>
+
+                <form onSubmit={handleSignup}>
+                  {renderProgress()}
+                  {role === 'client' ? renderClientStep() : renderFreelancerStep()}
+                  {error && <p className="am-error" style={{ marginTop: '10px' }}>{error}</p>}
+                  <div className="am-actions">
+                    {step > 1
+                      ? <button type="button" className="am-back"
+                          onClick={() => { setStep(s => s - 1); setError(''); }}>← Back</button>
+                      : <span />}
+                    <button className="am-submit" type="submit" style={{ flex: 1 }}>
+                      {step < maxSteps ? 'Continue →' : 'Create account & send OTP →'}
                     </button>
-                  ) : <div />}
-                  <button className="btn-submit" type="submit" style={{ flex: 1, maxWidth: step > 1 ? '65%' : '100%' }}>
-                    {step < maxSteps ? 'Continue →' : 'Create account →'}
-                  </button>
-                </div>
-              </form>
+                  </div>
+                </form>
+              </>
             )}
 
-            <p className="switch-text">
-              {mode === 'login' ? 'New to Workonova? ' : 'Already have an account? '}
-              <button onClick={() => switchMode(mode === 'login' ? 'signup' : 'login')}>
-                {mode === 'login' ? 'Create an account' : 'Log in'}
-              </button>
-            </p>
+            {/* Login View */}
+            {mode === 'login' && (
+              <>
+                <div className={`am-role-switch${role === 'freelancer' ? ' is-freelancer' : ''}`}
+                  style={{ marginBottom: '20px' }}>
+                  <div className="am-role-pill" />
+                  <button type="button" className={role === 'client' ? 'active' : ''}
+                    onClick={() => switchRole('client')}>Client</button>
+                  <button type="button" className={role === 'freelancer' ? 'active' : ''}
+                    onClick={() => switchRole('freelancer')}>Freelancer</button>
+                </div>
+
+                <p className="am-eyebrow">WELCOME BACK</p>
+                <h2 className="am-title">Log in as a {role}</h2>
+                <p className="am-sub">Access your projects, briefs, and deliveries in one place.</p>
+
+                {successMsg && <p style={{ color: '#10b981', fontSize: '14px', marginBottom: '14px' }}>{successMsg}</p>}
+
+                <form onSubmit={handleLogin}>
+                  <div className="am-fields">
+                    <AuthField label="Email address" name="login-email" id="login-email"
+                      type="email" placeholder="you@company.com" value={formData['login-email'] || ''} onChange={handleInput} />
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                        <label className="am-label" htmlFor="login-password">Password</label>
+                        <button type="button" className="am-link" style={{ fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer' }}
+                          onClick={() => switchMode('forgot')}>Forgot password?</button>
+                      </div>
+                      <input id="login-password" className="am-input" type="password" name="login-password"
+                        placeholder="••••••••" required value={formData['login-password'] || ''} onChange={handleInput} />
+                    </div>
+                  </div>
+                  {error && <p className="am-error">{error}</p>}
+                  <button className="am-submit" type="submit" disabled={loading} style={{ marginTop: '20px' }}>
+                    {loading ? 'Logging in…' : 'Log in →'}
+                  </button>
+                </form>
+              </>
+            )}
+
+            {/* Forgot Password View */}
+            {mode === 'forgot' && (
+              <>
+                <p className="am-eyebrow">SECURITY MANAGEMENT</p>
+                <h2 className="am-title">Reset your password</h2>
+
+                {forgotStep === 1 && (
+                  <form onSubmit={handleForgotEmailSubmit}>
+                    <p className="am-sub">Enter your registered email address below, and we will send you a 6-digit OTP to reset your password.</p>
+                    <div className="am-fields" style={{ margin: '20px 0' }}>
+                      <div>
+                        <label className="am-label" htmlFor="forgot-email">Email address</label>
+                        <input id="forgot-email" className="am-input" type="email" placeholder="you@company.com" required
+                          value={forgotEmail} onChange={e => setForgotEmail(e.target.value.trim())} />
+                      </div>
+                    </div>
+                    {error && <p className="am-error">{error}</p>}
+                    <button className="am-submit" type="submit" disabled={loading}>
+                      {loading ? 'Sending OTP…' : 'Send verification OTP →'}
+                    </button>
+                  </form>
+                )}
+
+                {forgotStep === 2 && (
+                  <form onSubmit={handleForgotOtpSubmit}>
+                    <p className="am-sub">Enter the 6-digit verification code sent to <b>{forgotEmail}</b></p>
+                    <div className="am-otp-row" style={{ margin: '20px 0' }}>
+                      {otp.map((v, i) => (
+                        <input key={i} id={`otp-${i}`} className="am-otp-box"
+                          inputMode="numeric" maxLength={1} value={v}
+                          onChange={e => handleOtpChange(i, e.target.value)}
+                          onKeyDown={e => handleOtpKeyDown(i, e)} />
+                      ))}
+                    </div>
+                    {error && <p className="am-error">{error}</p>}
+                    <p className="am-resend">Didn't receive code?{' '}
+                      <button type="button" className="am-link" onClick={handleResendOtp}>
+                        Resend OTP
+                      </button>
+                    </p>
+                    <button className="am-submit" type="submit" disabled={loading}>
+                      {loading ? 'Verifying…' : 'Verify OTP →'}
+                    </button>
+                  </form>
+                )}
+
+                {forgotStep === 3 && (
+                  <form onSubmit={handlePasswordResetSubmit}>
+                    <p className="am-sub">Create a new secure password for your account.</p>
+                    <div className="am-fields" style={{ margin: '20px 0' }}>
+                      <div>
+                        <label className="am-label" htmlFor="new-password">New password</label>
+                        <input id="new-password" className="am-input" type="password" placeholder="Minimum 8 characters" required
+                          value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="am-label" htmlFor="confirm-new-password">Confirm new password</label>
+                        <input id="confirm-new-password" className="am-input" type="password" placeholder="Repeat new password" required
+                          value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} />
+                      </div>
+                    </div>
+                    {error && <p className="am-error">{error}</p>}
+                    <button className="am-submit" type="submit" disabled={loading}>
+                      {loading ? 'Resetting…' : 'Update password & log in →'}
+                    </button>
+                  </form>
+                )}
+
+                <p className="am-switch" style={{ marginTop: '20px' }}>
+                  Back to{' '}
+                  <button className="am-link" onClick={() => switchMode('login')}>
+                    Log in
+                  </button>
+                </p>
+              </>
+            )}
+
+            {mode !== 'forgot' && (
+              <p className="am-switch">
+                {mode === 'login' ? 'New to Workonova? ' : 'Already have an account? '}
+                <button className="am-link" onClick={() => switchMode(mode === 'login' ? 'signup' : 'login')}>
+                  {mode === 'login' ? 'Create an account' : 'Log in'}
+                </button>
+              </p>
+            )}
           </>
         )}
       </div>

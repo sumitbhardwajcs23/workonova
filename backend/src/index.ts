@@ -1,57 +1,73 @@
+import 'dotenv/config';
 import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
-import { db } from './db/index.js';
-import { users } from './db/schema.js';
-import { createClient } from 'redis';
+import authApp from './routes/auth.js';
+import clientApp from './routes/client.js';
+import freelancerApp from './routes/freelancer.js';
+import adminApp from './routes/admin.js';
+import publicApp from './routes/public.js';
+import { rateLimiter } from './utils/rateLimiter.js';
+
+// ── Strict security check for production ──
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'worknova-secret-key-123456') {
+    console.error('❌ FATAL: JWT_SECRET environment variable is unset or insecure in production mode!');
+    process.exit(1);
+  }
+}
 
 const app = new Hono();
 
-// Redis Client Setup (for Caching)
-const redis = createClient({ url: process.env.REDIS_URL || 'redis://localhost:6379' });
-redis.on('error', (err) => console.log('Redis Client Error', err));
-redis.connect().catch(console.error);
+// ── Allowed origin (set CORS_ORIGIN env var in production) ──
+const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
 
-// Optimizations: Compression middleware (Gzip/Deflate)
+// ── Middleware ──
 app.use('*', compress());
-app.use('*', cors());
+app.use('*', cors({
+  origin: (origin) => {
+    if (process.env.NODE_ENV !== 'production') {
+      return origin; // Development mode allows any origin
+    }
+    // Strict comparison in production
+    return origin === allowedOrigin ? origin : allowedOrigin;
+  },
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+}));
 
-// Basic Route
+// ── Rate Limiting (10 requests / 60s per IP) ──
+const authRateLimiter = rateLimiter({
+  windowMs: 60 * 1000,
+  limit: 10,
+  message: 'Too many login/registration attempts. Please try again in 1 minute.',
+});
+
+// Basic check route
 app.get('/', (c) => {
   return c.text('Workonova MVP Backend is running efficiently!');
 });
 
-// Example Pagination & Caching Route
-app.get('/api/users', async (c) => {
-  const page = Number(c.req.query('page')) || 1;
-  const limit = Number(c.req.query('limit')) || 10;
-  const offset = (page - 1) * limit;
-  const cacheKey = `users:page:${page}:limit:${limit}`;
+// Mount modular routes (rate-limited auth)
+app.use('/api/auth/*', authRateLimiter);
+app.route('/api/auth', authApp);
+app.route('/api/client', clientApp);
+app.route('/api/freelancer', freelancerApp);
+app.route('/api/admin', adminApp);
+app.route('/api/public', publicApp);
 
-  try {
-    // 1. Check Redis Cache
-    const cachedUsers = await redis.get(cacheKey);
-    if (cachedUsers) {
-      return c.json({ source: 'cache', data: JSON.parse(cachedUsers) });
-    }
+import { handle } from 'hono/aws-lambda';
+import { initDatabase } from './db/init.js';
 
-    // 2. Query Database with pagination
-    const allUsers = await db.select().from(users).limit(limit).offset(offset);
-    
-    // 3. Set Cache for future requests (expire in 60s)
-    await redis.set(cacheKey, JSON.stringify(allUsers), { EX: 60 });
+// Export handler for AWS Lambda
+export const handler = handle(app);
 
-    return c.json({ source: 'database', data: allUsers });
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500);
-  }
-});
-
-const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-console.log(`Server is running on port ${port}`);
-
-serve({
-  fetch: app.fetch,
-  port
-});
+// Run local Node server in development only (when not inside AWS Lambda)
+if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
+  const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+  initDatabase().then(() => {
+    console.log(`🚀 WORKONOVA Server running on port ${port} | CORS: ${allowedOrigin}`);
+    serve({ fetch: app.fetch, port });
+  });
+}
