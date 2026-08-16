@@ -28,12 +28,14 @@
     "redis": "^6.2.1"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1111.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.21.0",
     "drizzle-kit": "^0.31.10",
+    "mime-types": "^3.0.2",
     "pm2": "^7.0.3",
     "tsx": "^4.23.12",
     "typescript": "^7.0.2"
