@@ -167,7 +167,31 @@ const CAT_META: Record<string, { icon: string; label: string; subs: string[] }> 
   content: { icon: '✍️', label: 'Content & Marketing',     subs: [] }
 };
 
-function getActiveCategoryTiers(cat: string) {
+function getActiveCategoryTiers(cat: string, dbBundlesList: any[] = []) {
+  const customCategoryBundles = dbBundlesList.filter(
+    b => (b.category || 'All Services') === cat
+  );
+
+  if (customCategoryBundles.length > 0) {
+    return customCategoryBundles.map(b => {
+      const features = typeof b.features === 'string' ? JSON.parse(b.features) : b.features;
+      const cleanPrice = parseInt(String(b.price).replace(/[^0-9]/g, '')) || 14999;
+      let tagKey = 'silver';
+      if (b.tag?.toLowerCase().includes('gold') || b.popular === 1) tagKey = 'gold';
+      else if (b.tag?.toLowerCase().includes('custom') || b.tag?.toLowerCase().includes('enterprise')) tagKey = 'custom';
+
+      return {
+        name: b.name,
+        tag: tagKey,
+        price: cleanPrice,
+        period: b.period || '/ Monthly',
+        badge: b.tag || 'PACKAGE TIER',
+        desc: b.description,
+        features: Array.isArray(features) ? features : []
+      };
+    });
+  }
+
   if (CATEGORY_PRICING_CATALOG[cat]) {
     return CATEGORY_PRICING_CATALOG[cat];
   }
@@ -445,7 +469,19 @@ export default function ClientDashboard() {
     return () => window.removeEventListener('keydown', handle);
   }, []);
 
-  // ── FETCH ORDERS ──────────────────────────────────────────────
+  // ── FETCH ORDERS & LIVE BUNDLES ───────────────────────────────
+  const [dbBundles, setDbBundles] = useState<any[]>([]);
+
+  const fetchLiveBundles = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/public/bundles`);
+      const data = await res.json();
+      if (res.ok && data.data) {
+        setDbBundles(data.data);
+      }
+    } catch (e) { console.error('Error fetching live bundles:', e); }
+  };
+
   const fetchOrders = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/client/orders`, { headers: { Authorization: `Bearer ${token}` } });
@@ -459,7 +495,10 @@ export default function ClientDashboard() {
     }
   };
 
-  useEffect(() => { fetchOrders(); }, []);
+  useEffect(() => {
+    fetchOrders();
+    fetchLiveBundles();
+  }, []);
 
   // ── CHAT POLLING ──────────────────────────────────────────────
   useEffect(() => {
@@ -561,7 +600,7 @@ export default function ClientDashboard() {
   // ── ORDER CREATION ────────────────────────────────────────────
   const handleTierChange = (tierTag: string) => {
     setNewProjTier(tierTag);
-    const activeTiers = getActiveCategoryTiers(newProjCategory);
+    const activeTiers = getActiveCategoryTiers(newProjCategory, dbBundles);
     const selected = activeTiers.find(p => p.tag === tierTag);
     if (selected) setNewProjPrice(selected.price);
   };
@@ -1215,7 +1254,7 @@ export default function ClientDashboard() {
                     onChange={e => {
                       const cat = e.target.value;
                       setNewProjCategory(cat);
-                      const tiers = getActiveCategoryTiers(cat);
+                      const tiers = getActiveCategoryTiers(cat, dbBundles);
                       const matched = tiers.find(t => t.tag === newProjTier) || tiers[0];
                       if (matched) {
                         setNewProjTier(matched.tag);
@@ -1229,7 +1268,7 @@ export default function ClientDashboard() {
                 <div className="cd-form-row">
                   <label className="cd-form-label">Select Package / Pricing Tier (Deliverable Breakdown for {newProjCategory})</label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 6 }}>
-                    {getActiveCategoryTiers(newProjCategory).map(p => {
+                    {getActiveCategoryTiers(newProjCategory, dbBundles).map(p => {
                       const isSelected = newProjTier === p.tag;
                       return (
                         <div

@@ -115,9 +115,10 @@ export default function AdminDashboard() {
 
   // Bundles Management
   const [editingBundle, setEditingBundle] = useState<any | null>(null);
-  const [bundleForm, setBundleForm] = useState({ tag: '', name: '', description: '', price: '', period: '', features: [] as string[], popular: false });
+  const [bundleForm, setBundleForm] = useState({ category: 'Website Development', tag: '', name: '', description: '', price: '', period: '', features: [] as string[], popular: false });
   const [bundleModalOpen, setBundleModalOpen] = useState(false);
   const [featureInput, setFeatureInput] = useState('');
+  const [selectedClientBundleCat, setSelectedClientBundleCat] = useState('Website Development');
 
   // Team Management
   const [teamList, setTeamList] = useState<any[]>([]);
@@ -597,6 +598,9 @@ export default function AdminDashboard() {
           </button>
           <button className={`ad-nav-item${currentView === 'bundles' ? ' active' : ''}`} onClick={() => goView('bundles')}>
             <span className="ad-nav-icon">💎</span><span>Pricing Bundles</span>
+          </button>
+          <button className={`ad-nav-item${currentView === 'client_bundles' ? ' active' : ''}`} onClick={() => goView('client_bundles')}>
+            <span className="ad-nav-icon">🎯</span><span>Client Modal Bundles &amp; Services</span>
           </button>
           <button className={`ad-nav-item${currentView === 'team' ? ' active' : ''}`} onClick={() => goView('team')}>
             <span className="ad-nav-icon">👥</span><span>Team Members Desk</span>
@@ -1159,6 +1163,152 @@ export default function AdminDashboard() {
                       })}
                     </tbody>
                   </table>
+                </div>
+              </>
+            )}
+
+            {/* ════ VIEW: CLIENT MODAL BUNDLES & SERVICES MANAGER ════ */}
+            {currentView === 'client_bundles' && (
+              <>
+                <div className="ad-view-header">
+                  <p>Client Intake Modal &amp; Category Packages Manager</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h1>🎯 Client Modal Bundles &amp; Services</h1>
+                    {isMaster && (
+                      <button className="ad-btn-primary" onClick={() => {
+                        setEditingBundle(null);
+                        setBundleForm({ category: selectedClientBundleCat, tag: 'STARTER', name: `${selectedClientBundleCat} Starter`, description: '', price: '14999', period: '/ Monthly', features: [], popular: false });
+                        setBundleModalOpen(true);
+                      }}>+ Add Category Tier Package</button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Service Category Selection Bar */}
+                <div style={{ background: '#ffffff', padding: '16px 20px', borderRadius: 12, border: '1px solid #e2e8f0', marginBottom: 20 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#334155', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span>📁 Select Service Category to Manage:</span>
+                    <span style={{ fontSize: 11, background: '#f1f5f9', padding: '2px 8px', borderRadius: 12, color: '#64748b' }}>
+                      Updates live client "Start New Project" modal
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {[
+                      'Website Development', 'Graphic Designing', 'Video Editing', 'App Development',
+                      'AI Services', '3D Design & Modeling', 'VFX', 'Animation', 'Digital Marketing',
+                      'Software Development', 'IT Services', 'Cyber Security', 'All Services'
+                    ].map(cat => {
+                      const isActive = selectedClientBundleCat === cat;
+                      const count = bundlesList.filter(b => (b.category || 'All Services') === cat).length;
+                      return (
+                        <button
+                          key={cat}
+                          onClick={() => setSelectedClientBundleCat(cat)}
+                          style={{
+                            padding: '8px 14px',
+                            borderRadius: 8,
+                            border: isActive ? '2px solid #56c41a' : '1px solid #cbd5e1',
+                            background: isActive ? '#f0fdf4' : '#f8fafc',
+                            color: isActive ? '#15803d' : '#334155',
+                            fontWeight: isActive ? 700 : 500,
+                            cursor: 'pointer',
+                            fontSize: 13,
+                            transition: 'all 0.15s ease'
+                          }}
+                        >
+                          {cat} {count > 0 && <span style={{ fontSize: 10, background: isActive ? '#56c41a' : '#cbd5e1', color: '#fff', padding: '1px 6px', borderRadius: 10, marginLeft: 4 }}>{count}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Info banner */}
+                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10, padding: '12px 16px', marginBottom: 20, color: '#1e40af', fontSize: 13 }}>
+                  💡 <b>Real-Time Client Sync:</b> Any package tier name, price, badge, description, or feature deliverable edited below for <b>{selectedClientBundleCat}</b> will immediately display in the Client Portal when a client clicks "Start New Project".
+                </div>
+
+                {/* Bundle Cards Grid */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+                  {bundlesList
+                    .filter(b => (b.category || 'All Services') === selectedClientBundleCat || b.category === 'All Services')
+                    .map(b => {
+                      const featuresList = typeof b.features === 'string' ? JSON.parse(b.features) : b.features;
+                      return (
+                        <div key={b.id} style={{ background: '#ffffff', border: b.popular === 1 ? '2px solid #56c41a' : '1px solid #e2e8f0', borderRadius: 12, padding: 20, boxShadow: '0 4px 12px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#475569', padding: '3px 8px', borderRadius: 4, letterSpacing: '0.5px' }}>
+                                {b.tag || 'PACKAGE TIER'}
+                              </span>
+                              {b.popular === 1 && <span style={{ fontSize: 10, fontWeight: 700, background: '#dcfce7', color: '#15803d', padding: '3px 8px', borderRadius: 4 }}>⭐ MOST POPULAR</span>}
+                            </div>
+                            <h3 style={{ fontSize: 17, fontWeight: 700, color: '#0f172a', margin: '4px 0' }}>{b.name}</h3>
+                            <div style={{ fontSize: 20, fontWeight: 800, color: '#56c41a', margin: '6px 0 10px' }}>
+                              ₹{b.price} <span style={{ fontSize: 12, fontWeight: 400, color: '#64748b' }}>{b.period}</span>
+                            </div>
+                            <p style={{ fontSize: 12, color: '#64748b', lineHeight: '1.4', marginBottom: 14 }}>{b.description}</p>
+                            <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: 12 }}>
+                              <small style={{ fontSize: 11, fontWeight: 700, color: '#334155', textTransform: 'uppercase' }}>Deliverables Included:</small>
+                              <ul style={{ paddingLeft: 16, marginTop: 6, fontSize: 12, color: '#334155', listStyleType: 'disc' }}>
+                                {featuresList && Array.isArray(featuresList) && featuresList.map((f: string, idx: number) => (
+                                  <li key={idx} style={{ marginBottom: 4 }}>{f}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: 8, marginTop: 18, borderTop: '1px solid #f1f5f9', paddingTop: 14 }}>
+                            {isMaster && (
+                              <button
+                                className="ad-btn-primary"
+                                style={{ flex: 1, padding: '8px 12px', fontSize: 12 }}
+                                onClick={() => {
+                                  setEditingBundle(b);
+                                  setBundleForm({
+                                    category: b.category || selectedClientBundleCat,
+                                    tag: b.tag,
+                                    name: b.name,
+                                    description: b.description,
+                                    price: b.price,
+                                    period: b.period,
+                                    features: featuresList || [],
+                                    popular: b.popular === 1
+                                  });
+                                  setBundleModalOpen(true);
+                                }}
+                              >
+                                ✏️ Edit Package Tier
+                              </button>
+                            )}
+                            {isMaster && (
+                              <button
+                                className="ad-btn-secondary"
+                                style={{ padding: '8px 12px', fontSize: 12, color: '#b91c1c' }}
+                                onClick={() => handleBundleDelete(b.id)}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  {bundlesList.filter(b => (b.category || 'All Services') === selectedClientBundleCat || b.category === 'All Services').length === 0 && (
+                    <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40, background: '#ffffff', borderRadius: 12, border: '1px solid #e2e8f0', color: '#64748b' }}>
+                      <p style={{ fontSize: 15, fontWeight: 600 }}>No custom bundle tiers configured for {selectedClientBundleCat} yet.</p>
+                      <button
+                        className="ad-btn-primary"
+                        style={{ marginTop: 12 }}
+                        onClick={() => {
+                          setEditingBundle(null);
+                          setBundleForm({ category: selectedClientBundleCat, tag: 'STARTER', name: `${selectedClientBundleCat} Starter`, description: '', price: '14999', period: '/ Monthly', features: [], popular: false });
+                          setBundleModalOpen(true);
+                        }}
+                      >
+                        + Create First Package Tier for {selectedClientBundleCat}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </>
             )}
