@@ -178,30 +178,43 @@ export async function initDatabase() {
       console.log('🌱 Seeding default bundles...');
       await db.insert(bundles).values([
         {
-          tag: 'STARTUPS & SOLO CREATORS',
-          name: 'Starter Creative',
-          description: 'Ideal for early-stage startups and creators needing high-impact graphics and videos.',
+          category: 'Website Development',
+          tag: 'STARTER WEB',
+          name: 'Starter Landing Page',
+          description: 'Single high-converting landing page with modern responsive design.',
           price: '₹14,999',
-          period: '/ Monthly',
-          features: JSON.stringify(['15 Graphic Design Creatives / Month', '4 Edited Video Reels (up to 60s)', 'Basic On-Page SEO / Social Management', 'Turnaround Time: 48 Hours', 'Dedicated Slack / WhatsApp Communication']),
+          period: '/ One-time',
+          features: JSON.stringify(['1 Responsive Landing Page (React / WP)', 'Contact Form & Email Integration', 'Basic On-Page SEO & Speed Optimization', '48-Hour Rapid Delivery', '1 Round of Free Revisions']),
           popular: 0
         },
         {
-          tag: 'GROWING BUSINESSES & E-COMMERCE',
-          name: 'Growth Tech & Ads Suite',
-          description: 'Our most popular bundle for scaling brands looking for full website + ads + content.',
+          category: 'Website Development',
+          tag: 'MOST POPULAR',
+          name: 'Growth Business Portal',
+          description: 'Complete multi-page corporate website with admin dashboard & analytics.',
           price: '₹34,999',
-          period: '/ Monthly',
-          features: JSON.stringify(['30 Graphic Design Creatives & Banners', '10 Viral Video Reels / Shorts', 'Full Meta & Google Ads Campaign Setup', '1 Custom High-Speed React / WP Landing Page', 'Monthly ROI Dashboard & Weekly Strategy Call', 'Priority 24 Hours Turnaround']),
+          period: '/ One-time',
+          features: JSON.stringify(['Up to 6 Custom Pages + CMS Admin', 'E-Commerce / Payment Gateway Setup', 'Full Technical & Mobile SEO (Lighthouse 95+)', 'Database & API Backend Integration', '3 Rounds of Free Revisions']),
           popular: 1
         },
         {
-          tag: 'ENTERPRISES & HIGH-SCALE BRANDS',
-          name: '3D, AI & Custom Tech Enterprise',
-          description: 'All-inclusive digital powerhouse for established brands needing custom software, 3D/VFX, and AI automation.',
+          category: 'Website Development',
+          tag: 'ENTERPRISE WEB',
+          name: 'Enterprise Custom Platform',
+          description: 'Custom SaaS web platform or complex web application built to scale.',
           price: '₹79,999',
+          period: '/ Project',
+          features: JSON.stringify(['Custom Full-Stack Web App (Next.js / Node / PG)', 'Role-Based User Dashboards & Subscriptions', 'High-Scale Cloud Architecture & Security Audit', 'Dedicated Lead Fullstack Engineer', 'Unlimited Revisions until Launch']),
+          popular: 0
+        },
+        {
+          category: 'All Services',
+          tag: 'STARTUPS & SOLO CREATORS',
+          name: 'Starter Creative Suite',
+          description: 'Ideal for early-stage startups and creators needing high-impact graphics and videos.',
+          price: '₹14,999',
           period: '/ Monthly',
-          features: JSON.stringify(['Unlimited Graphic & Motion Graphics Requests', 'Full Stack Software / Mobile App / AI Bot Build', '3D Product Renders & VFX Ads Production', 'Omnichannel Digital Marketing & Lead Gen', 'Dedicated Creative Director + Lead Developer', '1-on-1 Direct Access to WORKONOVA Leadership']),
+          features: JSON.stringify(['15 Graphic Design Creatives / Month', '4 Edited Video Reels (up to 60s)', 'Basic On-Page SEO / Social Management', 'Turnaround Time: 48 Hours', 'Dedicated Communication']),
           popular: 0
         }
       ]);

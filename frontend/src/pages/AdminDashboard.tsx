@@ -1113,7 +1113,7 @@ export default function AdminDashboard() {
                     {isMaster && (
                       <button className="ad-btn-primary" onClick={() => {
                         setEditingBundle(null);
-                        setBundleForm({ tag: '', name: '', description: '', price: '', period: '/ Monthly', features: [], popular: false });
+                        setBundleForm({ category: 'All Services', tag: '', name: '', description: '', price: '', period: '/ Monthly', features: [], popular: false });
                         setBundleModalOpen(true);
                       }}>+ Create Bundle</button>
                     )}
@@ -1123,14 +1123,14 @@ export default function AdminDashboard() {
                 <div className="ad-table-wrap">
                   <table className="ad-table">
                     <thead>
-                      <tr><th>Package Name</th><th>Price &amp; Cycle</th><th>Tag Label</th><th>Features Count</th><th>Popular Choice</th><th>Actions</th></tr>
+                      <tr><th>Category &amp; Package</th><th>Price &amp; Cycle</th><th>Tag Label</th><th>Features Count</th><th>Popular Choice</th><th>Actions</th></tr>
                     </thead>
                     <tbody>
                       {bundlesList.map(b => {
                         const featuresList = typeof b.features === 'string' ? JSON.parse(b.features) : b.features;
                         return (
                           <tr key={b.id}>
-                            <td><b>{b.name}</b><br/><span style={{ fontSize: 11, color: '#888' }}>{b.description}</span></td>
+                            <td><b>{b.name}</b> <span style={{ fontSize: 10, background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: 4, fontWeight: 600 }}>{b.category || 'All Services'}</span><br/><span style={{ fontSize: 11, color: '#888' }}>{b.description}</span></td>
                             <td><b>₹{b.price}</b> {b.period}</td>
                             <td><span className="fd-tech-pill" style={{ fontSize: 10 }}>{b.tag}</span></td>
                             <td>{featuresList ? featuresList.length : 0} items</td>
@@ -1140,6 +1140,7 @@ export default function AdminDashboard() {
                                 {isMaster && <button className="ad-pag-btn active" onClick={() => {
                                   setEditingBundle(b);
                                   setBundleForm({
+                                    category: b.category || 'All Services',
                                     tag: b.tag,
                                     name: b.name,
                                     description: b.description,
@@ -1477,6 +1478,24 @@ export default function AdminDashboard() {
             </div>
             <div className="ad-modal-body" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
               <form id="bundleForm" onSubmit={handleBundleSubmit}>
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Service Category</label>
+                  <select className="ad-form-select" value={bundleForm.category || 'All Services'} onChange={e => setBundleForm({ ...bundleForm, category: e.target.value })}>
+                    <option value="All Services">All Services (Default Global)</option>
+                    <option value="Graphic Designing">Graphic Designing</option>
+                    <option value="Video Editing">Video Editing</option>
+                    <option value="3D Design & Modeling">3D Design & Modeling</option>
+                    <option value="VFX">VFX</option>
+                    <option value="Animation">Animation</option>
+                    <option value="Digital Marketing">Digital Marketing</option>
+                    <option value="Website Development">Website Development</option>
+                    <option value="Software Development">Software Development</option>
+                    <option value="App Development">App Development</option>
+                    <option value="AI Services">AI Services</option>
+                    <option value="IT Services">IT Services</option>
+                    <option value="Cyber Security">Cyber Security</option>
+                  </select>
+                </div>
                 <div className="ad-form-row">
                   <label className="ad-form-label">Target Audience Tag</label>
                   <input className="ad-form-input" type="text" required placeholder="e.g. STARTUPS & SOLO CREATORS" value={bundleForm.tag} onChange={e => setBundleForm({ ...bundleForm, tag: e.target.value })} />

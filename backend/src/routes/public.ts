@@ -32,12 +32,17 @@ publicApp.get('/blogs', async (c) => {
   }
 });
 
-// ── GET Bundles (no auth required — for landing page) ──
+// ── GET Bundles (no auth required — for landing page & client portal) ──
 publicApp.get('/bundles', async (c) => {
   try {
-    const list = await db.select().from(bundles);
-    // Parse features JSON string to actual array if stored as string
-    const parsed = list.map(b => ({
+    const category = c.req.query('category');
+    let query = db.select().from(bundles);
+    const list = await query;
+    let filtered = list;
+    if (category) {
+      filtered = list.filter(b => (b.category || 'All Services') === category || b.category === 'All Services');
+    }
+    const parsed = filtered.map(b => ({
       ...b,
       features: typeof b.features === 'string' ? JSON.parse(b.features) : b.features,
       popular: b.popular === 1

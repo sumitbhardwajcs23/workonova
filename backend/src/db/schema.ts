@@ -130,6 +130,7 @@ export const blogs = pgTable('blogs', {
 // Dynamic pricing bundles visible on the landing page
 export const bundles = pgTable('bundles', {
   id: serial('id').primaryKey(),
+  category: text('category').default('All Services'),
   tag: text('tag').notNull(),
   name: text('name').notNull(),
   description: text('description').notNull(),

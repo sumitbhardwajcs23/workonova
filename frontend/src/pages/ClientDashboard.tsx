@@ -131,6 +131,34 @@ const pricingTiers = [
   }
 ];
 
+const CATEGORY_PRICING_CATALOG: Record<string, Array<{ name: string; tag: string; price: number; period: string; badge: string; desc: string; features: string[] }>> = {
+  'Website Development': [
+    { name: 'Starter Landing Page', tag: 'silver', price: 14999, period: '/ One-time', badge: 'STARTER WEB', desc: 'Single high-converting landing page with modern responsive design.', features: ['1 Responsive Landing Page (React / WP)', 'Contact Form & Email Integration', 'Basic On-Page SEO & Speed Optimization', '48-Hour Rapid Delivery', '1 Round of Free Revisions'] },
+    { name: 'Growth Business Portal', tag: 'gold', price: 34999, period: '/ One-time', badge: 'MOST POPULAR', desc: 'Complete multi-page corporate website with admin dashboard & analytics.', features: ['Up to 6 Custom Pages + CMS Admin', 'E-Commerce / Payment Gateway Setup', 'Full Technical & Mobile SEO (Lighthouse 95+)', 'Database & API Backend Integration', '3 Rounds of Free Revisions'] },
+    { name: 'Enterprise Custom Platform', tag: 'custom', price: 79999, period: '/ Project', badge: 'ENTERPRISE WEB', desc: 'Custom SaaS web platform or complex web application built to scale.', features: ['Custom Full-Stack Web App (Next.js / Node / PG)', 'Role-Based User Dashboards & Subscriptions', 'High-Scale Cloud Architecture & Security Audit', 'Dedicated Lead Fullstack Engineer', 'Unlimited Revisions until Launch'] }
+  ],
+  'Graphic Designing': [
+    { name: 'Starter Creative Pack', tag: 'silver', price: 9999, period: '/ Monthly', badge: 'STARTER DESIGN', desc: 'Essential social media graphics & promo banners for active handles.', features: ['12 Social Media Post Creatives', '2 Ad Banner Sets (Meta/Google)', 'Source Files Delivered (Figma/PSD)', '72-Hour Turnaround Time', '2 Revision Rounds'] },
+    { name: 'Growth Brand Identity', tag: 'gold', price: 24999, period: '/ Monthly', badge: 'MOST POPULAR', desc: 'Complete brand visual identity, UI graphics, and marketing collaterals.', features: ['30 High-Res Creatives & Carousels', 'Full Brand Guidelines & Logo Suite', 'Product Packaging / Label Design', 'Dedicated Senior Graphic Designer', 'Priority 24-Hour Delivery'] },
+    { name: 'Enterprise Design Studio', tag: 'custom', price: 54999, period: '/ Monthly', badge: 'ENTERPRISE DESIGN', desc: 'Dedicated design team producing unlimited graphic requests & UI design.', features: ['Unlimited Graphic & UI/UX Requests', 'Design System & Component Library', '3D Graphics & Motion Elements', 'Direct 1-on-1 Access to Creative Lead', 'Same-Day Urgent Turnaround'] }
+  ],
+  'Video Editing': [
+    { name: 'Starter Reels Pack', tag: 'silver', price: 12999, period: '/ Monthly', badge: 'STARTER VIDEO', desc: 'Short-form reels & shorts edited with dynamic captions and cuts.', features: ['5 Short-Form Reels / Shorts (up to 60s)', 'Engaging Dynamic Captions & Sound Effects', 'Basic Color Correction & Audio Clean', '48-Hour Turnaround', '2 Revisions per Video'] },
+    { name: 'Growth Creator Suite', tag: 'gold', price: 29999, period: '/ Monthly', badge: 'MOST POPULAR', desc: 'High-production video content for YouTube long-form, ads, and reels.', features: ['12 Viral Reels / Shorts', '2 YouTube Long-Form Videos (10-15 mins)', 'Advanced Motion Graphics & Lower Thirds', 'Color Grading & Sound Design', 'Priority 24-Hour Delivery'] },
+    { name: 'Enterprise VFX Production', tag: 'custom', price: 69999, period: '/ Monthly', badge: 'ENTERPRISE VIDEO', desc: 'Full post-production pipeline including 3D tracking, VFX, and commercials.', features: ['Unlimited Short & Long-Form Video Edits', 'Custom 3D VFX & Green Screen Compositing', 'Commercial Ad Production Suite', 'Dedicated Senior Video Editor', 'Unlimited Revisions'] }
+  ],
+  'App Development': [
+    { name: 'Starter MVP App', tag: 'silver', price: 39999, period: '/ Project', badge: 'STARTER APP', desc: 'Core feature mobile application for Android & iOS testing.', features: ['Cross-Platform App (React Native / Flutter)', 'User Authentication & Database Setup', 'Google Play Store / App Store Submission', '2-Week Rapid Build', 'Bug-Fix Guarantee'] },
+    { name: 'Growth Business App', tag: 'gold', price: 79999, period: '/ Project', badge: 'MOST POPULAR', desc: 'Full-featured mobile application with payment, push notifications & admin.', features: ['iOS & Android App with Custom UI/UX', 'Push Notifications & Payment Gateway', 'Admin Management Portal & Analytics', 'API & Third-Party Webhook Integrations', '30 Days Post-Launch Support'] },
+    { name: 'Enterprise Custom App', tag: 'custom', price: 149999, period: '/ Project', badge: 'ENTERPRISE APP', desc: 'High-performance scalable native app architecture for large platforms.', features: ['High-Concurrency Architecture & Microservices', 'Real-Time Chat / Geo-Tracking / Offline Sync', 'Dedicated Mobile Architect & Security Audit', 'End-to-End SLA & Source Code Handover', '6 Months SLA Maintenance'] }
+  ],
+  'AI Services': [
+    { name: 'Starter AI Bot', tag: 'silver', price: 19999, period: '/ One-time', badge: 'STARTER AI', desc: 'Custom AI chatbot trained on your business documents and FAQs.', features: ['Custom Knowledge-Base AI Chatbot', 'Website Widget & WhatsApp Integration', 'Lead Capture & Email Webhook Sync', '72-Hour Deployment', 'Basic Analytics Dashboard'] },
+    { name: 'Growth AI Automation', tag: 'gold', price: 44999, period: '/ One-time', badge: 'MOST POPULAR', desc: 'Multi-agent AI workflows automating support, content, and data ops.', features: ['Autonomous AI Agent Workflows (Gemini/GPT-4)', 'CRM & Database Integration (HubSpot/Salesforce)', 'AI Image/Voice/Text Content Pipeline', 'Custom Dashboard & Fine-Tuned Prompts', 'Full Workflow Training'] },
+    { name: 'Enterprise AI Ecosystem', tag: 'custom', price: 99999, period: '/ Project', badge: 'ENTERPRISE AI', desc: 'Proprietary AI model integration, vector search & enterprise automation.', features: ['Fine-Tuned LLM / RAG Vector Database System', 'Self-Hosted Secure AI Infrastructure', 'Omnichannel AI Support & Phone Voice Bots', 'Dedicated AI Engineer & SLA', 'Continuous Model Fine-Tuning'] }
+  ]
+};
+
 const CAT_META: Record<string, { icon: string; label: string; subs: string[] }> = {
   video:   { icon: '🎬', label: 'Video & Motion',          subs: ['Short-Form Reels / Shorts', 'YouTube Long-Form', '2D/3D Motion Graphics'] },
   design:  { icon: '🎨', label: 'Graphic & Brand Design',  subs: ['UI/UX Design (Figma)', 'Graphic Design & Ads', 'Brand Identity & Logos'] },
@@ -138,6 +166,13 @@ const CAT_META: Record<string, { icon: string; label: string; subs: string[] }> 
   ai:      { icon: '⚡', label: 'AI & Automation',         subs: ['AI Agents & Chatbots', 'Workflow Automation'] },
   content: { icon: '✍️', label: 'Content & Marketing',     subs: [] }
 };
+
+function getActiveCategoryTiers(cat: string) {
+  if (CATEGORY_PRICING_CATALOG[cat]) {
+    return CATEGORY_PRICING_CATALOG[cat];
+  }
+  return pricingTiers;
+}
 
 // ── HELPERS ────────────────────────────────────────────────────
 function getInitials(name: string) {
@@ -526,7 +561,8 @@ export default function ClientDashboard() {
   // ── ORDER CREATION ────────────────────────────────────────────
   const handleTierChange = (tierTag: string) => {
     setNewProjTier(tierTag);
-    const selected = pricingTiers.find(p => p.tag === tierTag);
+    const activeTiers = getActiveCategoryTiers(newProjCategory);
+    const selected = activeTiers.find(p => p.tag === tierTag);
     if (selected) setNewProjPrice(selected.price);
   };
 
@@ -1173,14 +1209,27 @@ export default function ClientDashboard() {
               <form id="newProjForm" onSubmit={handleCreateOrder}>
                 <div className="cd-form-row">
                   <label className="cd-form-label">Service Category</label>
-                  <select className="cd-form-select" value={newProjCategory} onChange={e => setNewProjCategory(e.target.value)}>
+                  <select
+                    className="cd-form-select"
+                    value={newProjCategory}
+                    onChange={e => {
+                      const cat = e.target.value;
+                      setNewProjCategory(cat);
+                      const tiers = getActiveCategoryTiers(cat);
+                      const matched = tiers.find(t => t.tag === newProjTier) || tiers[0];
+                      if (matched) {
+                        setNewProjTier(matched.tag);
+                        setNewProjPrice(matched.price);
+                      }
+                    }}
+                  >
                     {serviceCategories.map(c => <option key={c}>{c}</option>)}
                   </select>
                 </div>
                 <div className="cd-form-row">
-                  <label className="cd-form-label">Select Package / Pricing Tier</label>
+                  <label className="cd-form-label">Select Package / Pricing Tier (Deliverable Breakdown for {newProjCategory})</label>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 6 }}>
-                    {pricingTiers.map(p => {
+                    {getActiveCategoryTiers(newProjCategory).map(p => {
                       const isSelected = newProjTier === p.tag;
                       return (
                         <div
@@ -1210,8 +1259,8 @@ export default function ClientDashboard() {
                             <p style={{ fontSize: 11, color: '#555', marginTop: 6, lineHeight: '1.4' }}>{p.desc}</p>
                           </div>
                           <ul style={{ paddingLeft: 14, marginTop: 10, fontSize: 10, color: '#444', borderTop: '1px solid #e8e8e0', paddingTop: 8, margin: '10px 0 0 0', listStyleType: 'none' }}>
-                            {p.features.slice(0, 3).map((f, i) => (
-                              <li key={i} style={{ marginBottom: 3 }}>✓ {f}</li>
+                            {p.features.map((f, i) => (
+                              <li key={i} style={{ marginBottom: 4, lineHeight: '1.3' }}>✓ {f}</li>
                             ))}
                           </ul>
                         </div>

@@ -437,6 +437,7 @@ adminApp.get('/bundles', roleGuard(['admin', 'qa_admin']), async (c) => {
 adminApp.post('/bundles', roleGuard(['admin']), async (c) => {
   try {
     const body = await c.req.json();
+    const category = sanitise(body.category || 'All Services');
     const tag = sanitise(body.tag || '');
     const name = sanitise(body.name || '');
     const description = sanitise(body.description || '');
@@ -448,6 +449,7 @@ adminApp.post('/bundles', roleGuard(['admin']), async (c) => {
     if (!name || !price) return c.json({ error: 'Name and price are required.' }, 400);
 
     const inserted = await db.insert(bundles).values({
+      category,
       tag,
       name,
       description,
@@ -469,6 +471,7 @@ adminApp.put('/bundles/:id', roleGuard(['admin']), async (c) => {
   try {
     const bundleId = Number(c.req.param('id'));
     const body = await c.req.json();
+    const category = body.category ? sanitise(body.category) : undefined;
     const tag = sanitise(body.tag || '');
     const name = sanitise(body.name || '');
     const description = sanitise(body.description || '');
@@ -478,6 +481,7 @@ adminApp.put('/bundles/:id', roleGuard(['admin']), async (c) => {
     const popular = body.popular !== undefined ? (body.popular ? 1 : 0) : undefined;
 
     const updated = await db.update(bundles).set({
+      category: category || undefined,
       tag: tag || undefined,
       name: name || undefined,
       description: description || undefined,
