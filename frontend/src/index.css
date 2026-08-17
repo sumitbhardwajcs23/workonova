@@ -2712,6 +2712,28 @@ select.am-input {
   font-style: italic;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   DYNAMIC GALLERY SECTION TYPOGRAPHY (lp-gallery-* prefix)
+   ═══════════════════════════════════════════════════════════ */
+.lp-gallery-section h2 {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  letter-spacing: -0.4px !important;
+  font-weight: 700 !important;
+}
+
+.lp-gallery-section h3 {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  letter-spacing: -0.2px !important;
+  font-weight: 700 !important;
+}
+
+.lp-gallery-section p,
+.lp-gallery-section button,
+.lp-gallery-section span {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+}
+
+
 
 
 

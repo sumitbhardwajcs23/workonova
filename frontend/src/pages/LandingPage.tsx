@@ -428,10 +428,10 @@ export default function LandingPage() {
             <span style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', fontSize: 11, fontWeight: 700, padding: '5px 14px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 0.5, border: '1px solid rgba(99, 102, 241, 0.3)' }}>
               ⚡ Dynamic Work Gallery
             </span>
-            <h2 style={{ fontSize: 36, fontFamily: "'Fraunces', Georgia, serif", color: '#ffffff', margin: '16px 0 12px 0' }}>
+            <h2 style={{ fontSize: 34, fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontWeight: 700, letterSpacing: '-0.4px', color: '#ffffff', margin: '16px 0 12px 0', lineHeight: 1.25 }}>
               Explore Our Live Media &amp; Project Showcase
             </h2>
-            <p style={{ color: '#94a3b8', fontSize: 15, lineHeight: 1.6 }}>
+            <p style={{ color: '#94a3b8', fontSize: 15, lineHeight: 1.6, fontFamily: "'DM Sans', sans-serif" }}>
               From high-conversion SaaS web applications to 4K cinematic commercials and 3D product animations.
             </p>
 
@@ -451,6 +451,7 @@ export default function LandingPage() {
                     fontSize: 13,
                     fontWeight: 600,
                     cursor: 'pointer',
+                    fontFamily: "'DM Sans', sans-serif",
                     transition: 'all 0.2s ease',
                   }}
                 >
@@ -502,11 +503,11 @@ export default function LandingPage() {
                       </div>
                     </div>
                   )}
-                  <span style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(15, 23, 42, 0.85)', color: '#38bdf8', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, backdropFilter: 'blur(4px)' }}>
+                  <span style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(15, 23, 42, 0.85)', color: '#38bdf8', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, backdropFilter: 'blur(4px)', fontFamily: "'DM Sans', sans-serif" }}>
                     {item.category}
                   </span>
                   {item.mediaType === 'video' && (
-                    <span style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4 }}>
+                    <span style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4, fontFamily: "'DM Sans', sans-serif" }}>
                       VIDEO
                     </span>
                   )}
@@ -514,9 +515,35 @@ export default function LandingPage() {
 
                 {/* Info Container */}
                 <div style={{ padding: '20px' }}>
-                  <h3 style={{ margin: '0 0 6px', fontSize: 17, color: '#ffffff', fontWeight: 700 }}>{item.title}</h3>
-                  {item.clientName && <p style={{ margin: '0 0 8px', fontSize: 12, color: '#818cf8', fontWeight: 600 }}>Brand: {item.clientName}</p>}
-                  <p style={{ margin: 0, fontSize: 13, color: '#94a3b8', lineHeight: 1.5 }}>
+                  <h3 style={{
+                    margin: '0 0 6px',
+                    fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+                    fontSize: 17,
+                    color: '#ffffff',
+                    fontWeight: 700,
+                    letterSpacing: '-0.2px',
+                    lineHeight: 1.3
+                  }}>
+                    {item.title}
+                  </h3>
+                  {item.clientName && (
+                    <p style={{
+                      margin: '0 0 8px',
+                      fontSize: 12,
+                      color: '#818cf8',
+                      fontWeight: 600,
+                      fontFamily: "'DM Sans', sans-serif"
+                    }}>
+                      Client: {item.clientName}
+                    </p>
+                  )}
+                  <p style={{
+                    margin: 0,
+                    fontSize: 13,
+                    color: '#94a3b8',
+                    lineHeight: 1.5,
+                    fontFamily: "'DM Sans', sans-serif"
+                  }}>
                     {item.description || 'Verified production deliverable engineered by Workonova specialists.'}
                   </p>
                 </div>
@@ -839,8 +866,10 @@ export default function LandingPage() {
           <div className="lp-modal-window" onClick={e => e.stopPropagation()} style={{ maxWidth: 780, background: '#0f172a', color: '#ffffff', borderRadius: 16 }}>
             <div className="lp-modal-header" style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', padding: '16px 24px' }}>
               <div>
-                <h3 style={{ margin: 0, fontSize: 18, color: '#ffffff' }}>{selectedGalleryItem.title}</h3>
-                <small style={{ color: '#38bdf8' }}>{selectedGalleryItem.category} {selectedGalleryItem.clientName ? `• ${selectedGalleryItem.clientName}` : ''}</small>
+                <h3 style={{ margin: 0, fontSize: 20, fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", fontWeight: 700, letterSpacing: '-0.3px', color: '#ffffff' }}>
+                  {selectedGalleryItem.title}
+                </h3>
+                <small style={{ color: '#38bdf8', fontFamily: "'DM Sans', sans-serif", fontWeight: 600 }}>{selectedGalleryItem.category} {selectedGalleryItem.clientName ? `• ${selectedGalleryItem.clientName}` : ''}</small>
               </div>
               <button className="lp-modal-close" onClick={() => setSelectedGalleryItem(null)} style={{ color: '#94a3b8' }}>×</button>
             </div>
