@@ -785,24 +785,107 @@ export default function AdminDashboard() {
                 <div className="ad-view-header">
                   <p>Production Assignments</p>
                   <h1>Assign Desk</h1>
+                  <p style={{ color: '#888', fontSize: 13, marginTop: 4 }}>
+                    Freelancers are matched by their registered <b>Area of Expertise</b>
+                  </p>
                 </div>
+
                 {orders.filter(o => o.status === 'paid').length === 0 ? (
                   <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>All paid orders successfully assigned to freelancers!</p>
                 ) : (
-                  <div className="ad-qc-grid">
-                    {orders.filter(o => o.status === 'paid').map(o => (
-                      <div className="ad-qc-card" key={o.id}>
-                        <div className="ad-qc-header">
-                          <h3>Order #WN-{o.id} · {o.serviceCategory}</h3>
-                          <b>Client Price: ₹{o.price.toLocaleString()}</b>
-                        </div>
-                        <p className="ad-qc-brief">{o.description}</p>
-                        <div className="ad-qc-actions">
-                          <button className="ad-btn-primary" onClick={() => { setAssigningOrder(o); setPayoutAmount(Math.floor(o.price * 0.7)); }}>Assign Freelancer Account</button>
-                        </div>
+                  (() => {
+                    // Group paid orders by service category
+                    const paidOrders = orders.filter(o => o.status === 'paid');
+                    const grouped: Record<string, typeof paidOrders> = {};
+                    paidOrders.forEach(o => {
+                      const cat = o.serviceCategory || 'Uncategorized';
+                      if (!grouped[cat]) grouped[cat] = [];
+                      grouped[cat].push(o);
+                    });
+                    return (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+                        {Object.entries(grouped).map(([category, catOrders]) => {
+                          // Freelancers who have this category in their services
+                          const matchedFreelancers = freelancers.filter(f =>
+                            (f.services || []).some(s =>
+                              s.toLowerCase().includes(category.toLowerCase()) ||
+                              category.toLowerCase().includes(s.toLowerCase())
+                            )
+                          );
+                          return (
+                            <div key={category} className="ad-assign-category-group">
+                              {/* Category header */}
+                              <div className="ad-assign-cat-header">
+                                <div className="ad-assign-cat-title">
+                                  <span className="ad-assign-cat-icon">📂</span>
+                                  <span>{category}</span>
+                                  <span className="ad-assign-cat-badge">{catOrders.length} order{catOrders.length > 1 ? 's' : ''}</span>
+                                </div>
+                                <div className="ad-assign-cat-meta">
+                                  {matchedFreelancers.length > 0 ? (
+                                    <span className="ad-assign-match-pill matched">
+                                      ✓ {matchedFreelancers.length} matched freelancer{matchedFreelancers.length > 1 ? 's' : ''}
+                                    </span>
+                                  ) : (
+                                    <span className="ad-assign-match-pill none">⚠ No matched freelancers</span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Matched freelancer chips */}
+                              {matchedFreelancers.length > 0 && (
+                                <div className="ad-assign-freelancer-chips">
+                                  {matchedFreelancers.map(f => (
+                                    <div key={f.id} className="ad-assign-freelancer-chip">
+                                      <span className="ad-assign-chip-avatar">{f.name.charAt(0).toUpperCase()}</span>
+                                      <div>
+                                        <div className="ad-assign-chip-name">{f.name}</div>
+                                        <div className="ad-assign-chip-skills">
+                                          {(f.services || []).slice(0, 3).join(' · ')}
+                                        </div>
+                                      </div>
+                                      <span className="ad-assign-chip-matched">Expert ✓</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+
+                              {/* Order cards in this category */}
+                              <div className="ad-qc-grid">
+                                {catOrders.map(o => (
+                                  <div className="ad-qc-card" key={o.id}>
+                                    <div className="ad-qc-header">
+                                      <h3>Order #WN-{o.id}</h3>
+                                      <b>₹{o.price.toLocaleString()}</b>
+                                    </div>
+                                    <p className="ad-qc-brief">{o.description || 'No brief provided.'}</p>
+                                    <div className="ad-assign-order-meta">
+                                      <span>Tier: <b>{o.tier || 'Standard'}</b></span>
+                                      <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
+                                    </div>
+                                    <div className="ad-qc-actions">
+                                      <button
+                                        className="ad-btn-primary"
+                                        onClick={() => {
+                                          setAssigningOrder(o);
+                                          setPayoutAmount(Math.floor(o.price * 0.7));
+                                          setSelectedFreelancerId(
+                                            matchedFreelancers.length === 1 ? matchedFreelancers[0].id : ''
+                                          );
+                                        }}
+                                      >
+                                        🎯 Assign to Freelancer
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()
                 )}
               </>
             )}
@@ -1434,39 +1517,127 @@ export default function AdminDashboard() {
 
       {/* ═══════════ MODALS ═══════════ */}
 
-      {/* ASSIGN MODAL */}
-      {assigningOrder && (
-        <div className="ad-modal-overlay" onClick={() => setAssigningOrder(null)}>
-          <div className="ad-modal" onClick={e => e.stopPropagation()}>
-            <div className="ad-modal-header">
-              <h2>🎯 Assign Task — Order #WN-{assigningOrder.id}</h2>
-              <button className="ad-modal-close" onClick={() => setAssigningOrder(null)}>×</button>
-            </div>
-            <div className="ad-modal-body">
-              <form id="assignForm" onSubmit={handleAssignOrder}>
-                <div className="ad-form-row">
-                  <label className="ad-form-label">Select Vetted Freelancer</label>
-                  <select className="ad-form-select" value={selectedFreelancerId} onChange={e => setSelectedFreelancerId(e.target.value === '' ? '' : Number(e.target.value))} required>
-                    <option value="">Choose freelancer...</option>
-                    {freelancers.map(f => (
-                      <option key={f.id} value={f.id}>{f.name} ({f.email})</option>
-                    ))}
-                  </select>
+      {/* ASSIGN MODAL — expertise filtered */}
+      {assigningOrder && (() => {
+        const category = assigningOrder.serviceCategory || '';
+        const matchedFreelancers = freelancers.filter(f =>
+          (f.services || []).some(s =>
+            s.toLowerCase().includes(category.toLowerCase()) ||
+            category.toLowerCase().includes(s.toLowerCase())
+          )
+        );
+        const otherFreelancers = freelancers.filter(f => !matchedFreelancers.includes(f));
+        return (
+          <div className="ad-modal-overlay" onClick={() => setAssigningOrder(null)}>
+            <div className="ad-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+              <div className="ad-modal-header">
+                <h2>🎯 Assign Task — Order #WN-{assigningOrder.id}</h2>
+                <button className="ad-modal-close" onClick={() => setAssigningOrder(null)}>×</button>
+              </div>
+              <div className="ad-modal-body">
+                {/* Order info strip */}
+                <div className="ad-assign-modal-info">
+                  <div className="ad-assign-modal-info-row">
+                    <span className="ad-assign-modal-label">Service</span>
+                    <span className="ad-assign-modal-value">{assigningOrder.serviceCategory}</span>
+                  </div>
+                  <div className="ad-assign-modal-info-row">
+                    <span className="ad-assign-modal-label">Tier</span>
+                    <span className="ad-assign-modal-value">{assigningOrder.tier || 'Standard'}</span>
+                  </div>
+                  <div className="ad-assign-modal-info-row">
+                    <span className="ad-assign-modal-label">Client Price</span>
+                    <span className="ad-assign-modal-value">₹{assigningOrder.price.toLocaleString()}</span>
+                  </div>
                 </div>
-                <div className="ad-form-row">
-                  <label className="ad-form-label">Freelancer Payout Fee (₹)</label>
-                  <input className="ad-form-input" type="number" value={payoutAmount} onChange={e => setPayoutAmount(Number(e.target.value))} max={assigningOrder.price} required />
-                  <small style={{ color: '#888', display: 'block', marginTop: 4 }}>Client price paid: ₹{assigningOrder.price.toLocaleString()}</small>
-                </div>
-              </form>
-            </div>
-            <div className="ad-modal-footer">
-              <button className="ad-btn-secondary" onClick={() => setAssigningOrder(null)}>Cancel</button>
-              <button className="ad-btn-primary" form="assignForm" type="submit">Assign Task</button>
+
+                <form id="assignForm" onSubmit={handleAssignOrder}>
+                  <div className="ad-form-row">
+                    <label className="ad-form-label">
+                      Select Freelancer
+                      {matchedFreelancers.length > 0 && (
+                        <span className="ad-assign-match-pill matched" style={{ marginLeft: 10 }}>
+                          ✓ {matchedFreelancers.length} expert{matchedFreelancers.length > 1 ? 's' : ''} matched
+                        </span>
+                      )}
+                    </label>
+                    <select
+                      className="ad-form-select"
+                      value={selectedFreelancerId}
+                      onChange={e => setSelectedFreelancerId(e.target.value === '' ? '' : Number(e.target.value))}
+                      required
+                    >
+                      <option value="">— Choose a freelancer —</option>
+
+                      {/* Matched by expertise — shown first */}
+                      {matchedFreelancers.length > 0 && (
+                        <optgroup label={`✓ Matched for "${category}" (${matchedFreelancers.length})`}>
+                          {matchedFreelancers.map(f => (
+                            <option key={f.id} value={f.id}>
+                              {f.name} · {(f.services || []).slice(0, 2).join(', ')}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+
+                      {/* Other freelancers — different expertise */}
+                      {otherFreelancers.length > 0 && (
+                        <optgroup label={`Other Freelancers (${otherFreelancers.length})`}>
+                          {otherFreelancers.map(f => (
+                            <option key={f.id} value={f.id}>
+                              {f.name} · {(f.services || []).slice(0, 2).join(', ') || 'No expertise listed'}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                    </select>
+
+                    {/* Show selected freelancer's expertise tags */}
+                    {selectedFreelancerId !== '' && (() => {
+                      const sel = freelancers.find(f => f.id === selectedFreelancerId);
+                      if (!sel) return null;
+                      const isMatch = matchedFreelancers.includes(sel);
+                      return (
+                        <div className="ad-assign-selected-info">
+                          <span className={`ad-assign-match-pill ${isMatch ? 'matched' : 'other'}`}>
+                            {isMatch ? '✓ Expertise matches this task' : '⚠ Expertise may not match'}
+                          </span>
+                          <div className="ad-assign-selected-tags">
+                            {(sel.services || []).map(s => (
+                              <span key={s} className={`ad-assign-tag ${s.toLowerCase().includes(category.toLowerCase()) || category.toLowerCase().includes(s.toLowerCase()) ? 'highlight' : ''}`}>
+                                {s}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  <div className="ad-form-row">
+                    <label className="ad-form-label">Freelancer Payout Fee (₹)</label>
+                    <input
+                      className="ad-form-input"
+                      type="number"
+                      value={payoutAmount}
+                      onChange={e => setPayoutAmount(Number(e.target.value))}
+                      max={assigningOrder.price}
+                      required
+                    />
+                    <small style={{ color: '#888', display: 'block', marginTop: 4 }}>
+                      Client paid ₹{assigningOrder.price.toLocaleString()} · Suggested: ₹{Math.floor(assigningOrder.price * 0.7).toLocaleString()} (70%)
+                    </small>
+                  </div>
+                </form>
+              </div>
+              <div className="ad-modal-footer">
+                <button className="ad-btn-secondary" onClick={() => setAssigningOrder(null)}>Cancel</button>
+                <button className="ad-btn-primary" form="assignForm" type="submit">🎯 Assign Task</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* QA GATEWAY MODAL */}
       {qaOrder && (
