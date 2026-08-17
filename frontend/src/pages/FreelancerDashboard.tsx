@@ -175,34 +175,8 @@ export default function FreelancerDashboard() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch tasks');
       
-      // Inject standard visualization tasks if empty so dashboard is testable
       const tasks = data.data || [];
-      if (tasks.length === 0) {
-        const mockTasks: Task[] = [
-          {
-            id: 105, serviceCategory: 'Website Development', tier: 'gold',
-            description: 'Ensure mobile-first responsive layout & dark mode. Payment webhook must be validated on server side.',
-            submissionLink: 'https://drive.google.com', qaApprovedLink: '',
-            status: 'assigned', freelancerPayoutAmount: 18000, createdAt: new Date().toISOString()
-          },
-          {
-            id: 103, serviceCategory: 'Website Development', tier: 'silver',
-            description: 'E-commerce dashboard for managing products, categories, reviews and orders flow.',
-            submissionLink: 'https://drive.google.com', qaApprovedLink: '',
-            status: 'assigned', freelancerPayoutAmount: 8500, createdAt: new Date().toISOString()
-          },
-          {
-            id: 98, serviceCategory: 'Graphic Designing', tier: 'silver',
-            description: 'Create 10 high converting ad variations (1080x1080 and 1080x1920 sizes) for campaign launching.',
-            submissionLink: 'https://drive.google.com', qaApprovedLink: '',
-            status: 'revision_requested', adminRevisionComments: 'Change CTA color to active brand green and refine background details.',
-            freelancerPayoutAmount: 6000, createdAt: new Date().toISOString()
-          }
-        ];
-        setTasksList(mockTasks);
-      } else {
-        setTasksList(tasks);
-      }
+      setTasksList(tasks);
     } catch (err: any) {
       setError(err.message);
     } finally {

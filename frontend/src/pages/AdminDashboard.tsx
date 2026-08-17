@@ -401,7 +401,7 @@ export default function AdminDashboard() {
       setSuccess(`Pricing bundle '${bundleForm.name}' saved successfully!`);
       setBundleModalOpen(false);
       setEditingBundle(null);
-      setBundleForm({ tag: '', name: '', description: '', price: '', period: '', features: [], popular: false });
+      setBundleForm({ category: 'Website Development', tag: '', name: '', description: '', price: '', period: '', features: [], popular: false });
       fetchDashboardData();
     } catch (err: any) { setError(err.message); }
   };

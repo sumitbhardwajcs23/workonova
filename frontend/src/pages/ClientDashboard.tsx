@@ -76,24 +76,7 @@ interface BrandProfile {
   briefs: string[];
 }
 
-const INITIAL_BRAND_PROFILES: Record<string, BrandProfile> = {
-  northstar: {
-    name: 'NorthStar Agency',
-    logo: '🖼️ NorthStar_Main_Logo.svg',
-    colors: ['#0f1a0d', '#56c41a', '#eef9e6'],
-    font: 'Outfit / Inter',
-    driveLink: 'https://drive.google.com',
-    briefs: ['Website_CreativeBrief.pdf', 'Q3_Campaign_Deck.pptx']
-  },
-  fitpeak: {
-    name: 'FitPeak (Fitness Brand)',
-    logo: '🖼️ FitPeak_Orange_Monk.png',
-    colors: ['#ff5722', '#212121', '#fafafa'],
-    font: 'Syne / Syne Bold',
-    driveLink: 'https://drive.google.com',
-    briefs: ['Reels_Editing_Styleguide.docx']
-  }
-};
+const INITIAL_BRAND_PROFILES: Record<string, BrandProfile> = {};
 
 const serviceCategories = [
   'Graphic Designing', 'Video Editing', '3D Design & Modeling', 'VFX',
@@ -381,22 +364,18 @@ export default function ClientDashboard() {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [notifPanelOpen, setNotifPanelOpen] = useState(false);
 
-  const [notifications, setNotifications] = useState<Notification[]>([
-    { id: 'n1', title: 'Design Deliverables Ready for Review', desc: 'Order #WN-2026-98 · 10 Ad Creatives are ready. Please review within 72 hours.', time: 'Just now', unread: true },
-    { id: 'n2', title: 'Milestone Update · Web Dev', desc: 'Order #WN-2026-105 · "Database schema completed, Razorpay webhook being integrated."', time: '35 minutes ago', unread: true },
-    { id: 'n3', title: 'Invoice Generated', desc: 'Order #WN-2026-89 · Invoice INV-2026-089 is ready for download.', time: '2 days ago', unread: false }
-  ]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   // ── BRAND VAULT STATE ─────────────────────────────────────────
   const [brandProfiles, setBrandProfiles] = useState<Record<string, BrandProfile>>(INITIAL_BRAND_PROFILES);
-  const [selectedBrandKey, setSelectedBrandKey] = useState('northstar');
+  const [selectedBrandKey, setSelectedBrandKey] = useState('');
 
   // ── BILLING & GST STATE ───────────────────────────────────────
   const [billingDetails, setBillingDetails] = useState({
-    companyName: 'NorthStar Agency Pvt. Ltd.',
-    gstNumber: '27AABCN1234A1Z5',
-    billingEmail: 'accounts@northstar.in',
-    billingAddress: 'C-101, Andheri East, Mumbai, Maharashtra – 400069'
+    companyName: '',
+    gstNumber: '',
+    billingEmail: '',
+    billingAddress: ''
   });
 
   // ── SUPPORT STATE ─────────────────────────────────────────────
