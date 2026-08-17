@@ -33,7 +33,7 @@ interface Project {
   title: string;
   category: 'web' | 'design' | 'video' | 'ai' | 'content';
   freelancer: string;
-  status: 'In Progress' | 'In Review' | 'Delivered' | 'Cancelled' | 'Submitted';
+  status: 'In Progress' | 'In Review' | 'Delivered' | 'Cancelled' | 'Submitted' | 'Client Approved';
   placedDate: string;
   estDelivery: string;
   amount: number;
@@ -399,6 +399,7 @@ export default function ClientDashboard() {
   const [newProjPrice, setNewProjPrice] = useState(14999);
   const [newProjBrief, setNewProjBrief] = useState('');
   const [newProjLink, setNewProjLink] = useState('');
+  const [paymentProcessing, setPaymentProcessing] = useState(false);
 
   const [revWebUrl, setRevWebUrl] = useState('');
   const [revWebIssueType, setRevWebIssueType] = useState('bug');
@@ -461,30 +462,59 @@ export default function ClientDashboard() {
     } catch (e) { console.error('Error fetching live bundles:', e); }
   };
 
-  const fetchOrders = async () => {
+  const fetchOrders = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/client/orders`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch orders');
       mergeOrdersAndTemplates(data.data || []);
     } catch (err: any) {
-      triggerToast('❌ Error: ' + err.message);
+      if (!silent) triggerToast('❌ Error: ' + err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     fetchOrders();
     fetchLiveBundles();
+
+    // Fast real-time synchronization (every 2s when tab is active)
+    const syncInterval = setInterval(() => {
+      if (!document.hidden) {
+        fetchOrders(true);
+      }
+    }, 2000);
+
+    // Instant sync when user switches back to tab or focuses window
+    const handleVisibilitySync = () => {
+      if (!document.hidden) {
+        fetchOrders(true);
+        fetchLiveBundles();
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilitySync);
+    document.addEventListener('visibilitychange', handleVisibilitySync);
+
+    return () => {
+      clearInterval(syncInterval);
+      window.removeEventListener('focus', handleVisibilitySync);
+      document.removeEventListener('visibilitychange', handleVisibilitySync);
+    };
   }, []);
 
-  // ── CHAT POLLING ──────────────────────────────────────────────
+  // ── CHAT POLLING (Real-time 1.2s sync when modal open) ───────────
   useEffect(() => {
     let interval: any;
     if (threadModalOpen && activeProjectForModal?.dbId) {
       fetchChatMessages(activeProjectForModal.dbId);
-      interval = setInterval(() => fetchChatMessages(activeProjectForModal.dbId!), 4000);
+      interval = setInterval(() => {
+        if (!document.hidden) {
+          fetchChatMessages(activeProjectForModal.dbId!);
+        }
+      }, 1200);
     }
     return () => clearInterval(interval);
   }, [threadModalOpen, activeProjectForModal]);
@@ -544,11 +574,14 @@ export default function ClientDashboard() {
       else if (cat.includes('ai') || cat.includes('automation') || cat.includes('chatbot')) category = 'ai';
       else if (cat.includes('content') || cat.includes('marketing') || cat.includes('copy')) category = 'content';
 
-      let status: 'Submitted' | 'In Progress' | 'In Review' | 'Delivered' | 'Cancelled' = 'In Progress';
+      let status: 'Submitted' | 'In Progress' | 'In Review' | 'Delivered' | 'Cancelled' | 'Client Approved' = 'In Progress';
       let currentStep = 1;
       if (o.status === 'pending_payment') { status = 'Submitted'; currentStep = 0; }
       else if (o.status === 'paid' || o.status === 'assigned') { status = 'In Progress'; currentStep = 1; }
-      else if (o.status === 'submitted' || o.status === 'qa_approved') { status = 'In Review'; currentStep = 2; }
+      else if (o.status === 'submitted') { status = 'In Progress'; currentStep = 2; }
+      else if (o.status === 'qa_approved') { status = 'In Review'; currentStep = 2; }
+      else if (o.status === 'revision_requested') { status = 'In Progress'; currentStep = 1; }
+      else if (o.status === 'client_approved') { status = 'Client Approved'; currentStep = 3; }
       else if (o.status === 'delivered') { status = 'Delivered'; currentStep = 3; }
       else if (o.status === 'cancelled') { status = 'Cancelled'; currentStep = 0; }
 
@@ -589,16 +622,177 @@ export default function ClientDashboard() {
     if (!newProjBrief || !newProjLink) { triggerToast('⚠️ Please provide both brief description and assets folder link.'); return; }
     const drivePattern = /^(https?:\/\/)?(drive\.google\.com|dropbox\.com|.*\.dropbox\.com)\/.+$/;
     if (!drivePattern.test(newProjLink)) { triggerToast('⚠️ Link must be a valid Google Drive or Dropbox URL.'); return; }
+    
+    setPaymentProcessing(true);
     try {
-      const res1 = await fetch(`${API_BASE}/api/client/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ serviceCategory: newProjCategory, tier: newProjTier, price: newProjPrice, description: newProjBrief }) });
-      const data1 = await res1.json();
-      if (!res1.ok) throw new Error(data1.error || 'Failed to initialize order');
-      const res2 = await fetch(`${API_BASE}/api/client/orders/${data1.data.id}/submit`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ description: newProjBrief, submissionLink: newProjLink }) });
-      const data2 = await res2.json();
-      if (!res2.ok) throw new Error(data2.error || 'Failed to submit details');
-      triggerToast('🎉 Project order placed and briefly submitted successfully!');
-      setNewProjBrief(''); setNewProjLink(''); setNewProjectModalOpen(false); fetchOrders();
-    } catch (err: any) { triggerToast('❌ ' + err.message); }
+      // 1. Initialize Razorpay order on backend
+      const rzpRes = await fetch(`${API_BASE}/api/client/razorpay/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          serviceCategory: newProjCategory,
+          tier: newProjTier,
+          price: newProjPrice,
+          description: newProjBrief
+        })
+      });
+      const rzpData = await rzpRes.json();
+      if (!rzpRes.ok) throw new Error(rzpData.error || 'Failed to initialize payment gateway');
+
+      const { orderId, razorpayOrderId, amount, currency, keyId } = rzpData;
+
+      // 2. Open Razorpay Checkout Modal
+      if (typeof window !== 'undefined' && (window as any).Razorpay) {
+        const options = {
+          key: keyId,
+          amount: amount,
+          currency: currency || 'INR',
+          name: 'WORKONOVA',
+          description: `${newProjCategory} (${newProjTier.toUpperCase()} Tier)`,
+          image: '/assets/workonova-logo.webp',
+          order_id: razorpayOrderId,
+          prefill: {
+            name: user?.name || '',
+            email: user?.email || '',
+            contact: user?.phone || '',
+          },
+          theme: {
+            color: '#6366f1'
+          },
+          modal: {
+            ondismiss: function() {
+              setPaymentProcessing(false);
+              triggerToast('ℹ️ Payment dismissed. Order saved in pending queue.');
+              fetchOrders(true);
+            }
+          },
+          handler: async function (response: any) {
+            try {
+              // 3. Verify cryptographic payment signature
+              const verifyRes = await fetch(`${API_BASE}/api/client/razorpay/verify-payment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  orderId,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                })
+              });
+              const verifyData = await verifyRes.json();
+              if (!verifyRes.ok) throw new Error(verifyData.error || 'Payment verification failed');
+
+              // 4. Submit intake brief & assets link
+              await fetch(`${API_BASE}/api/client/orders/${orderId}/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ description: newProjBrief, submissionLink: newProjLink })
+              });
+
+              triggerToast('🎉 Payment verified & Project order placed successfully!');
+              setNewProjBrief('');
+              setNewProjLink('');
+              setNewProjectModalOpen(false);
+              fetchOrders();
+            } catch (verr: any) {
+              triggerToast('❌ Verification error: ' + verr.message);
+            } finally {
+              setPaymentProcessing(false);
+            }
+          }
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.on('payment.failed', function (resp: any) {
+          setPaymentProcessing(false);
+          triggerToast('❌ Payment failed: ' + (resp.error?.description || 'Transaction declined'));
+        });
+        rzp.open();
+      } else {
+        // Fallback if Razorpay SDK is unavailable
+        await fetch(`${API_BASE}/api/client/orders/${orderId}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ description: newProjBrief, submissionLink: newProjLink })
+        });
+        triggerToast('🎉 Project order placed successfully!');
+        setNewProjBrief(''); setNewProjLink(''); setNewProjectModalOpen(false); fetchOrders();
+        setPaymentProcessing(false);
+      }
+    } catch (err: any) {
+      setPaymentProcessing(false);
+      triggerToast('❌ ' + err.message);
+    }
+  };
+
+  const handlePayPendingOrder = async (p: Project) => {
+    if (!p.dbId) return;
+    setPaymentProcessing(true);
+    try {
+      const rzpRes = await fetch(`${API_BASE}/api/client/razorpay/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ orderId: p.dbId })
+      });
+      const rzpData = await rzpRes.json();
+      if (!rzpRes.ok) throw new Error(rzpData.error || 'Failed to initialize payment');
+
+      const { orderId, razorpayOrderId, amount, currency, keyId, serviceCategory, tier } = rzpData;
+
+      if (typeof window !== 'undefined' && (window as any).Razorpay) {
+        const options = {
+          key: keyId,
+          amount,
+          currency: currency || 'INR',
+          name: 'WORKONOVA',
+          description: `${serviceCategory || p.title} (${(tier || 'Order').toUpperCase()})`,
+          image: '/assets/workonova-logo.webp',
+          order_id: razorpayOrderId,
+          prefill: {
+            name: user?.name || '',
+            email: user?.email || '',
+            contact: user?.phone || '',
+          },
+          theme: { color: '#6366f1' },
+          modal: {
+            ondismiss: function () {
+              setPaymentProcessing(false);
+              triggerToast('ℹ️ Payment window dismissed.');
+            }
+          },
+          handler: async function (response: any) {
+            try {
+              const verifyRes = await fetch(`${API_BASE}/api/client/razorpay/verify-payment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  orderId,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                })
+              });
+              const verifyData = await verifyRes.json();
+              if (!verifyRes.ok) throw new Error(verifyData.error || 'Payment verification failed');
+              triggerToast('🎉 Payment verified successfully!');
+              fetchOrders();
+            } catch (err: any) {
+              triggerToast('❌ Verification error: ' + err.message);
+            } finally {
+              setPaymentProcessing(false);
+            }
+          }
+        };
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      } else {
+        triggerToast('⚠️ Razorpay checkout unavailable.');
+        setPaymentProcessing(false);
+      }
+    } catch (e: any) {
+      setPaymentProcessing(false);
+      triggerToast('❌ ' + e.message);
+    }
   };
 
   // ── CHAT ──────────────────────────────────────────────────────
@@ -614,10 +808,31 @@ export default function ClientDashboard() {
     if (e) e.preventDefault();
     const textToSend = customText || newMessageText.trim();
     if (!textToSend || !activeProjectForModal?.dbId) return;
+
+    // Optimistic UI update: render outgoing message immediately with 0ms latency
+    const optimisticMsg = {
+      id: Date.now(),
+      orderId: activeProjectForModal.dbId,
+      senderId: 0,
+      senderRole: 'client' as const,
+      messageText: textToSend,
+      createdAt: new Date().toISOString(),
+    };
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    if (!customText) setNewMessageText('');
+
     try {
-      const res = await fetch(`${API_BASE}/api/client/orders/${activeProjectForModal.dbId}/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ messageText: textToSend }) });
-      if (res.ok) { if (!customText) setNewMessageText(''); fetchChatMessages(activeProjectForModal.dbId); }
-    } catch (e) { console.error(e); }
+      const res = await fetch(`${API_BASE}/api/client/orders/${activeProjectForModal.dbId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ messageText: textToSend })
+      });
+      if (res.ok) {
+        fetchChatMessages(activeProjectForModal.dbId);
+      }
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   // ── TESTIMONIAL ───────────────────────────────────────────────
@@ -642,26 +857,51 @@ export default function ClientDashboard() {
   };
 
   // ── REVISION ─────────────────────────────────────────────────
-  const triggerRevisionRequest = (e: React.FormEvent) => {
+  const triggerRevisionRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeProjectForModal) return;
     let details = '';
     if (activeProjectForModal.category === 'web') details = `Bug on (${revWebUrl}): ${revWebDesc}`;
     else if (activeProjectForModal.category === 'video') details = `Cut at ${revVidTime}: ${revVidDesc}. Notes: ${revVidNotes}`;
     else details = `Design mod for ${revDesignItem}: ${revDesignDesc}`;
+    
+    if (activeProjectForModal.dbId) {
+      try {
+        await fetch(`${API_BASE}/api/client/orders/${activeProjectForModal.dbId}/client-revision`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ comments: details })
+        });
+      } catch (err) {
+        console.error('Failed to submit revision to server:', err);
+      }
+    }
+    
     setAllProjects(prev => prev.map(p => p.id === activeProjectForModal.id ? { ...p, status: 'In Progress', currentStep: 1, slaHoursRemaining: undefined, revisionsLeft: p.revisionsLeft - 1, updates: [{ date: 'Today', text: `Revision requested: "${details.slice(0, 50)}..."` }, ...p.updates] } : p));
-    if (activeProjectForModal.dbId) handleSendChatMessage(e, `🔄 [SYSTEM RELAY] Client requested revision: "${details}"`);
     setRevisionModalOpen(false);
-    triggerToast('🔄 Revision sent to developer! Project returned to In Progress.');
+    triggerToast('🔄 Revision sent to specialist! Project returned to In Progress.');
+    fetchOrders(true);
   };
 
   // ── APPROVE ───────────────────────────────────────────────────
-  const triggerPayoutFinalize = () => {
+  const triggerPayoutFinalize = async () => {
     if (!activeProjectForModal) return;
-    setAllProjects(prev => prev.map(p => p.id === activeProjectForModal.id ? { ...p, status: 'Delivered', currentStep: 3, slaHoursRemaining: undefined, updates: [{ date: 'Today', text: 'Project finalized and payout released!' }, ...p.updates] } : p));
-    if (activeProjectForModal.dbId) handleSendChatMessage(null as any, '✅ [SYSTEM RELAY] Client approved files. Releasing funds.');
+    
+    if (activeProjectForModal.dbId) {
+      try {
+        await fetch(`${API_BASE}/api/client/orders/${activeProjectForModal.dbId}/client-approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        });
+      } catch (err) {
+        console.error('Failed to approve project on server:', err);
+      }
+    }
+    
+    setAllProjects(prev => prev.map(p => p.id === activeProjectForModal.id ? { ...p, status: 'Client Approved', currentStep: 3, slaHoursRemaining: undefined, updates: [{ date: 'Today', text: 'Project finalized and approved by client!' }, ...p.updates] } : p));
     setApproveModalOpen(false);
-    triggerToast('✅ Project marked complete! Freelancer payment released.');
+    triggerToast('✅ Deliverables approved! Admin authorized to release specialist payout.');
+    fetchOrders(true);
   };
 
   // ── ADD-ON ────────────────────────────────────────────────────
@@ -968,7 +1208,14 @@ export default function ClientDashboard() {
                           <td>{p.placedDate}</td>
                           <td>₹{p.amount.toLocaleString('en-IN')}</td>
                           <td><span className={`cd-status-pill ${statusClass(p.status)}`}>{p.status}</span></td>
-                          <td><button className="cd-table-link" onClick={() => openProject(p)}>Chat &amp; Details ↗</button></td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                              <button className="cd-table-link" onClick={() => openProject(p)}>Chat &amp; Details ↗</button>
+                              {p.freelancer === 'Not Assigned' && p.dbId && (
+                                <button className="cd-table-link" style={{ color: '#6366f1', fontWeight: 700 }} onClick={() => handlePayPendingOrder(p)}>Pay 💳</button>
+                              )}
+                            </div>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1298,8 +1545,10 @@ export default function ClientDashboard() {
               </form>
             </div>
             <div className="cd-modal-footer">
-              <button className="cd-btn-secondary" onClick={() => setNewProjectModalOpen(false)}>Cancel</button>
-              <button className="cd-btn-primary" form="newProjForm" type="submit">Pay &amp; Submit Brief →</button>
+              <button className="cd-btn-secondary" onClick={() => setNewProjectModalOpen(false)} disabled={paymentProcessing}>Cancel</button>
+              <button className="cd-btn-primary" form="newProjForm" type="submit" disabled={paymentProcessing} style={{ minWidth: 200 }}>
+                {paymentProcessing ? 'Processing... ⏳' : `Pay ₹${newProjPrice.toLocaleString('en-IN')} with Razorpay 💳`}
+              </button>
             </div>
           </div>
         </div>

@@ -61,6 +61,7 @@ export default function AdminDashboard() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [freelancers, setFreelancers] = useState<Freelancer[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
+  const [financials, setFinancials] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -126,21 +127,8 @@ export default function AdminDashboard() {
   const [teamForm, setTeamForm] = useState({ name: '', role: '', subtitle: '', description: '', bio: '', uniqueFact: '', image: '', orderIndex: 0 });
   const [teamModalOpen, setTeamModalOpen] = useState(false);
 
-  useEffect(() => {
-    fetchDashboardData();
-  }, []);
-
-  useEffect(() => {
-    let interval: any;
-    if (relayOrder) {
-      fetchMessages(relayOrder.id);
-      interval = setInterval(() => fetchMessages(relayOrder.id), 4000);
-    }
-    return () => clearInterval(interval);
-  }, [relayOrder]);
-
-  const fetchDashboardData = async () => {
-    setLoading(true);
+  const fetchDashboardData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const resOrders = await fetch(`${API_BASE}/api/admin/orders`, { headers: { Authorization: `Bearer ${token}` } });
       const dataOrders = await resOrders.json();
@@ -161,6 +149,15 @@ export default function AdminDashboard() {
       const resTeam = await fetch(`${API_BASE}/api/admin/team`, { headers: { Authorization: `Bearer ${token}` } });
       const dataTeam = await resTeam.json();
 
+      let dataFin: any = null;
+      if (isMaster) {
+        const resFin = await fetch(`${API_BASE}/api/admin/financials`, { headers: { Authorization: `Bearer ${token}` } });
+        if (resFin.ok) {
+          dataFin = await resFin.json();
+          setFinancials(dataFin);
+        }
+      }
+
       setOrders(dataOrders.data || []);
       if (resFl.ok) setFreelancers(dataFl.data || []);
       if (resT.ok) setTestimonials(dataT.data || []);
@@ -168,11 +165,51 @@ export default function AdminDashboard() {
       if (resBu.ok) setBundlesList(dataBu.data || []);
       if (resTeam.ok) setTeamList(dataTeam.data || []);
     } catch (err: any) {
-      setError(err.message);
+      if (!silent) setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchDashboardData();
+
+    // Fast real-time synchronization (every 2s when tab is active)
+    const syncInterval = setInterval(() => {
+      if (!document.hidden) {
+        fetchDashboardData(true);
+      }
+    }, 2000);
+
+    const handleVisibilitySync = () => {
+      if (!document.hidden) {
+        fetchDashboardData(true);
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilitySync);
+    document.addEventListener('visibilitychange', handleVisibilitySync);
+
+    return () => {
+      clearInterval(syncInterval);
+      window.removeEventListener('focus', handleVisibilitySync);
+      document.removeEventListener('visibilitychange', handleVisibilitySync);
+    };
+  }, []);
+
+  // ── RELAY CHAT POLLING (Real-time 1.2s sync) ─────────────────────
+  useEffect(() => {
+    let interval: any;
+    if (relayOrder) {
+      fetchMessages(relayOrder.id);
+      interval = setInterval(() => {
+        if (!document.hidden) {
+          fetchMessages(relayOrder.id);
+        }
+      }, 1200);
+    }
+    return () => clearInterval(interval);
+  }, [relayOrder]);
 
 
   const handleAssignOrder = async (e: React.FormEvent) => {
@@ -262,14 +299,13 @@ export default function AdminDashboard() {
     if (!isMaster) return;
     setError(''); setSuccess('');
     try {
-      const res = await fetch(`${API_BASE}/api/admin/orders/${orderId}/payout`, {
+      const res = await fetch(`${API_BASE}/api/admin/orders/${orderId}/release-payout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ markAsPaid: true })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Payout release failed');
-      setSuccess('Payout released and marked paid. Order complete!');
+      setSuccess(data.message || '🎉 Payout released and notified specialist. Order delivered!');
       fetchDashboardData();
     } catch (err: any) { setError(err.message); }
   };
@@ -334,14 +370,28 @@ export default function AdminDashboard() {
   const handleSendRelayMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!relayText || !relayOrder) return;
+    const textToSend = relayText.trim();
+    if (!textToSend) return;
+
+    // Optimistic UI update: render message immediately with 0ms latency
+    const optimisticMsg = {
+      id: Date.now(),
+      orderId: relayOrder.id,
+      senderId: 0,
+      senderRole: 'admin' as const,
+      messageText: textToSend,
+      createdAt: new Date().toISOString(),
+    };
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    setRelayText('');
+
     try {
       const res = await fetch(`${API_BASE}/api/admin/orders/${relayOrder.id}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ messageText: relayText })
+        body: JSON.stringify({ messageText: textToSend })
       });
       if (res.ok) {
-        setRelayText('');
         fetchMessages(relayOrder.id);
       }
     } catch (e) { console.error(e); }
@@ -579,10 +629,14 @@ export default function AdminDashboard() {
             <span className="ad-nav-icon">👨‍💻</span><span>Freelancer Roster</span>
           </button>
 
-          <p className="ad-nav-label">Finance &amp; Payments</p>
+          <p className="ad-nav-label">Finance &amp; Razorpay</p>
+          <button className={`ad-nav-item${currentView === 'financials' ? ' active' : ''}`} onClick={() => goView('financials')}>
+            <span className="ad-nav-icon">💳</span><span>Razorpay &amp; Financials</span>
+            {financials?.summary?.totalTransactions > 0 && <span className="ad-nav-badge">{financials.summary.totalTransactions}</span>}
+          </button>
           <button className={`ad-nav-item${currentView === 'payouts' ? ' active' : ''}`} onClick={() => goView('payouts')}>
             <span className="ad-nav-icon">💸</span><span>Batch Payouts</span>
-            {payoutDue > 0 && <span className="ad-nav-badge">₹{payoutDue / 1000}K</span>}
+            {payoutDue > 0 && <span className="ad-nav-badge">₹{Math.round(payoutDue / 1000)}K</span>}
           </button>
           <button className={`ad-nav-item${currentView === 'invoices' ? ' active' : ''}`} onClick={() => goView('invoices')}>
             <span className="ad-nav-icon">🧾</span><span>GST Invoices</span>
@@ -1050,6 +1104,110 @@ export default function AdminDashboard() {
               </>
             )}
 
+            {/* ════ VIEW: RAZORPAY FINANCIALS ════ */}
+            {currentView === 'financials' && (
+              <>
+                <div className="ad-view-header">
+                  <p>Payment Gateway &amp; Revenue Operations</p>
+                  <h1>💳 Razorpay &amp; Financial Control Panel</h1>
+                </div>
+
+                {/* Financial KPIs */}
+                <div className="ad-kpi-grid" style={{ marginBottom: 24 }}>
+                  <div className="ad-kpi-card">
+                    <small>Total Razorpay Volume</small>
+                    <strong style={{ color: '#6366f1' }}>₹{(financials?.summary?.totalCollected || 0).toLocaleString('en-IN')}</strong>
+                  </div>
+                  <div className="ad-kpi-card">
+                    <small>Specialist Payouts Settled</small>
+                    <strong style={{ color: '#10b981' }}>₹{(financials?.summary?.totalPayoutsReleased || 0).toLocaleString('en-IN')}</strong>
+                  </div>
+                  <div className="ad-kpi-card">
+                    <small>Escrow &amp; Pending Payouts</small>
+                    <strong style={{ color: '#f59e0b' }}>₹{(financials?.summary?.pendingEscrowPayouts || 0).toLocaleString('en-IN')}</strong>
+                  </div>
+                  <div className="ad-kpi-card">
+                    <small>Net Platform Margin</small>
+                    <strong style={{ color: '#38bdf8' }}>₹{(financials?.summary?.netPlatformRevenue || 0).toLocaleString('en-IN')}</strong>
+                  </div>
+                </div>
+
+                {/* Transactions Table */}
+                <div className="ad-card">
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>Razorpay Payment Receipts &amp; Audit Stream</h3>
+                    <span style={{ fontSize: 13, color: '#94a3b8' }}>
+                      {financials?.summary?.totalTransactions || 0} Transactions Recorded
+                    </span>
+                  </div>
+                  <div className="ad-table-wrap">
+                    <table className="ad-table">
+                      <thead>
+                        <tr>
+                          <th>Order ID</th>
+                          <th>Client Details</th>
+                          <th>Service &amp; Tier</th>
+                          <th>Gross Paid</th>
+                          <th>Razorpay Payment ID</th>
+                          <th>Transaction Date</th>
+                          <th>Lifecycle Status</th>
+                          <th>Payout Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(financials?.transactions || []).length === 0 ? (
+                          <tr><td colSpan={8} style={{ textAlign: 'center', color: '#888', padding: 30 }}>No transactions recorded yet.</td></tr>
+                        ) : (
+                          (financials?.transactions || []).map((t: any) => (
+                            <tr key={t.id}>
+                              <td><b>#WN-{t.id}</b></td>
+                              <td>
+                                <div><b>{t.client?.name || 'Client'}</b></div>
+                                <small style={{ color: '#888' }}>{t.client?.email || ''}</small>
+                              </td>
+                              <td>
+                                <div>{t.serviceCategory}</div>
+                                <span style={{ fontSize: 11, color: '#38bdf8', textTransform: 'uppercase', fontWeight: 700 }}>{t.tier}</span>
+                              </td>
+                              <td><b style={{ color: '#10b981' }}>₹{t.price.toLocaleString('en-IN')}</b></td>
+                              <td>
+                                <code style={{ background: '#1e2230', color: '#a5b4fc', padding: '4px 8px', borderRadius: 4, fontSize: 12, border: '1px solid #2e344a' }}>
+                                  {t.paymentId}
+                                </code>
+                              </td>
+                              <td><small>{t.createdAt ? new Date(t.createdAt).toLocaleDateString('en-IN') : 'Recent'}</small></td>
+                              <td>
+                                <span className={`ad-status-pill ${t.status}`}>
+                                  {t.status.replace('_', ' ').toUpperCase()}
+                                </span>
+                              </td>
+                              <td>
+                                {t.status === 'client_approved' && (
+                                  <button
+                                    className="ad-btn-primary"
+                                    style={{ background: '#059669', fontSize: 11, padding: '5px 10px' }}
+                                    onClick={() => handlePayoutRelease(t.id)}
+                                  >
+                                    Release ₹{t.freelancerPayoutAmount?.toLocaleString('en-IN')}
+                                  </button>
+                                )}
+                                {t.status === 'delivered' && (
+                                  <span style={{ color: '#10b981', fontSize: 12, fontWeight: 700 }}>✓ Settled</span>
+                                )}
+                                {t.status !== 'client_approved' && t.status !== 'delivered' && (
+                                  <span style={{ color: '#888', fontSize: 12 }}>In Milestone</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* ════ VIEW: PAYOUTS BATCH ════ */}
             {currentView === 'payouts' && (
               <>
@@ -1057,23 +1215,30 @@ export default function AdminDashboard() {
                   <p>Settlement desk</p>
                   <h1>Freelancer Batch Payouts</h1>
                 </div>
-                {orders.filter(o => o.status === 'qa_approved').length === 0 ? (
+                {orders.filter(o => o.status === 'qa_approved' || o.status === 'client_approved').length === 0 ? (
                   <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>All freelancer payouts have been settled.</p>
                 ) : (
                   <div className="ad-table-wrap">
                     <table className="ad-table">
                       <thead>
-                        <tr><th>Order ID</th><th>Service</th><th>Assigned Freelancer</th><th>Payout Amount</th><th>Release Funds</th></tr>
+                        <tr><th>Order ID</th><th>Service</th><th>Assigned Freelancer</th><th>Status</th><th>Payout Amount</th><th>Release Funds</th></tr>
                       </thead>
                       <tbody>
-                        {orders.filter(o => o.status === 'qa_approved').map(o => (
+                        {orders.filter(o => o.status === 'qa_approved' || o.status === 'client_approved').map(o => (
                           <tr key={o.id}>
                             <td><b>#WN-{o.id}</b></td>
                             <td>{o.serviceCategory}</td>
-                            <td>{o.freelancer?.name}</td>
+                            <td>{o.freelancer?.name || 'Assigned Specialist'}</td>
+                            <td>
+                              <span className={`ad-status-pill ${o.status}`}>
+                                {o.status === 'client_approved' ? 'CLIENT APPROVED 🎉' : 'QA APPROVED'}
+                              </span>
+                            </td>
                             <td><b>₹{o.freelancerPayoutAmount?.toLocaleString()}</b></td>
                             <td>
-                              <button className="ad-btn-primary" onClick={() => handlePayoutRelease(o.id)}>Release Payment</button>
+                              <button className="ad-btn-primary" onClick={() => handlePayoutRelease(o.id)}>
+                                {o.status === 'client_approved' ? 'Release Client-Approved Payout' : 'Authorize Payout'}
+                              </button>
                             </td>
                           </tr>
                         ))}

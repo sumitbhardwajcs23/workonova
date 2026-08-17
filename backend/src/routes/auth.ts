@@ -81,9 +81,8 @@ authApp.post('/send-otp', async (c) => {
     if (!cleanEmail) return c.json({ error: 'Email is required.' }, 400);
 
     const code = await persistOtp(cleanEmail, 'verify_email');
-    sendOtpEmail(cleanEmail, cleanName, code).catch(err => {
-      console.error(`❌ Failed to send OTP email to ${cleanEmail}:`, err);
-    });
+    const sent = await sendOtpEmail(cleanEmail, cleanName, code);
+    if (!sent) console.error(`❌ Failed to send OTP email to ${cleanEmail}`);
     return c.json({ message: 'OTP sent to your email.' });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -217,9 +216,8 @@ authApp.post('/register', async (c) => {
 
     // Automatically send verification OTP on register
     const code = await persistOtp(email, 'verify_email');
-    sendOtpEmail(email, name, code).catch(err => {
-      console.error(`❌ Failed to send welcome registration OTP email to ${email}:`, err);
-    });
+    const sent = await sendOtpEmail(email, name, code);
+    if (!sent) console.error(`❌ Failed to send welcome registration OTP email to ${email}`);
 
     return c.json({
       token,
@@ -326,9 +324,8 @@ authApp.post('/forgot-password/send-otp', async (c) => {
     if (!user) return c.json({ message: 'If this email is registered, you will receive an OTP.' });
 
     const code = await persistOtp(cleanEmail, 'forgot_password');
-    sendPasswordResetEmail(cleanEmail, user.name, code).catch(err => {
-      console.error(`❌ Failed to send password reset email to ${cleanEmail}:`, err);
-    });
+    const sent = await sendPasswordResetEmail(cleanEmail, user.name, code);
+    if (!sent) console.error(`❌ Failed to send password reset email to ${cleanEmail}`);
 
     return c.json({ message: 'Password reset OTP sent to your email.' });
   } catch (err: any) {

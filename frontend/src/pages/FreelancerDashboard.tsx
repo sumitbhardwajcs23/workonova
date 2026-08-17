@@ -9,8 +9,9 @@ interface Task {
   serviceCategory: string;
   tier: string;
   description: string;
-  submissionLink: string;
-  qaApprovedLink: string;
+  submissionLink: string; // Client's initial raw assets / Drive / Dropbox link
+  freelancerSubmissionLink?: string; // Freelancer's delivered assets link
+  qaApprovedLink?: string;
   status: string;
   freelancerPayoutAmount: number;
   adminRevisionComments?: string;
@@ -97,6 +98,28 @@ export default function FreelancerDashboard() {
   useEffect(() => {
     fetchTasks();
     fetchProfile();
+
+    // Fast real-time synchronization (every 2s when tab is active)
+    const syncInterval = setInterval(() => {
+      if (!document.hidden) {
+        fetchTasks(true);
+      }
+    }, 2000);
+
+    const handleVisibilitySync = () => {
+      if (!document.hidden) {
+        fetchTasks(true);
+      }
+    };
+
+    window.addEventListener('focus', handleVisibilitySync);
+    document.addEventListener('visibilitychange', handleVisibilitySync);
+
+    return () => {
+      clearInterval(syncInterval);
+      window.removeEventListener('focus', handleVisibilitySync);
+      document.removeEventListener('visibilitychange', handleVisibilitySync);
+    };
   }, []);
 
   const fetchProfile = async () => {
@@ -158,7 +181,11 @@ export default function FreelancerDashboard() {
     let interval: any;
     if (activeChatTask) {
       fetchMessages(activeChatTask.id);
-      interval = setInterval(() => fetchMessages(activeChatTask.id), 4000);
+      interval = setInterval(() => {
+        if (!document.hidden) {
+          fetchMessages(activeChatTask.id);
+        }
+      }, 1200);
     }
     return () => clearInterval(interval);
   }, [activeChatTask]);
@@ -167,7 +194,8 @@ export default function FreelancerDashboard() {
     chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  const fetchTasks = async () => {
+  const fetchTasks = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await fetch(`${API_BASE}/api/freelancer/tasks`, {
         headers: { Authorization: `Bearer ${token}` }
@@ -178,9 +206,9 @@ export default function FreelancerDashboard() {
       const tasks = data.data || [];
       setTasksList(tasks);
     } catch (err: any) {
-      setError(err.message);
+      if (!silent) setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -225,6 +253,21 @@ export default function FreelancerDashboard() {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessageText || !activeChatTask) return;
+    const textToSend = newMessageText.trim();
+    if (!textToSend) return;
+
+    // Optimistic UI update: render message immediately with 0ms latency
+    const optimisticMsg = {
+      id: Date.now(),
+      orderId: activeChatTask.id,
+      senderId: 0,
+      senderRole: 'freelancer' as const,
+      messageText: textToSend,
+      createdAt: new Date().toISOString(),
+    };
+    setChatMessages(prev => [...prev, optimisticMsg]);
+    setNewMessageText('');
+
     try {
       const res = await fetch(`${API_BASE}/api/freelancer/tasks/${activeChatTask.id}/messages`, {
         method: 'POST',
@@ -232,10 +275,9 @@ export default function FreelancerDashboard() {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
-        body: JSON.stringify({ messageText: newMessageText })
+        body: JSON.stringify({ messageText: textToSend })
       });
       if (res.ok) {
-        setNewMessageText('');
         fetchMessages(activeChatTask.id);
       }
     } catch (e) {
@@ -435,12 +477,53 @@ export default function FreelancerDashboard() {
 
                           {/* Instructions description */}
                           <div className="fd-instruction-box">
-                            "{task.description}"
+                            <b>Brief Instructions:</b> "{task.description}"
                           </div>
+
+                          {/* Client Raw Assets & Drive Link */}
+                          {task.submissionLink && (
+                            <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                              <a
+                                href={task.submissionLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 6,
+                                  background: 'rgba(99, 102, 241, 0.15)',
+                                  border: '1px solid #6366f1',
+                                  color: '#a5b4fc',
+                                  padding: '7px 14px',
+                                  borderRadius: 6,
+                                  fontSize: 12.5,
+                                  fontWeight: 600,
+                                  textDecoration: 'none',
+                                }}
+                              >
+                                📁 Client Raw Assets &amp; Drive Folder ↗
+                              </a>
+                              {task.freelancerSubmissionLink && (
+                                <a
+                                  href={task.freelancerSubmissionLink}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{
+                                    color: '#34d399',
+                                    fontSize: 12,
+                                    textDecoration: 'underline',
+                                    fontWeight: 600,
+                                  }}
+                                >
+                                  ✓ View Your Delivered Work ↗
+                                </a>
+                              )}
+                            </div>
+                          )}
 
                           {task.adminRevisionComments && (
                             <div style={{ background: '#fee2e2', borderLeft: '3.5px solid #ef4444', padding: '10px 14px', borderRadius: 6, fontSize: 12.5, color: '#991b1b', marginTop: 12 }}>
-                              <b>Revision Requested by QA:</b> "{task.adminRevisionComments}"
+                              <b>Revision Requested by QA / Client:</b> "{task.adminRevisionComments}"
                             </div>
                           )}
                         </div>
@@ -552,6 +635,19 @@ export default function FreelancerDashboard() {
               <button className="fd-modal-close" onClick={() => setSubmittingTask(null)}>×</button>
             </div>
             <div className="fd-modal-body">
+              {submittingTask.description && (
+                <div style={{ background: '#131722', border: '1px solid #1e293b', padding: 12, borderRadius: 6, marginBottom: 14, fontSize: 12.5, color: '#cbd5e1' }}>
+                  <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Client Brief Reference</div>
+                  "{submittingTask.description}"
+                </div>
+              )}
+              {submittingTask.submissionLink && (
+                <div style={{ marginBottom: 16 }}>
+                  <a href={submittingTask.submissionLink} target="_blank" rel="noreferrer" style={{ color: '#818cf8', fontSize: 12.5, fontWeight: 600, textDecoration: 'underline' }}>
+                    📁 Open Client Raw Assets Folder (Google Drive / Dropbox) ↗
+                  </a>
+                </div>
+              )}
               <form id="deliverForm" onSubmit={handleDeliverTask}>
                 <div className="fd-form-row">
                   <label className="fd-form-label">Google Drive or Dropbox Deliverables Link</label>

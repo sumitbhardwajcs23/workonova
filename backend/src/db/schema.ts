@@ -74,10 +74,11 @@ export const orders = pgTable('orders', {
   price: integer('price').notNull(),
   status: text('status').notNull().default('pending_payment'),
   // 'pending_payment' | 'paid' | 'assigned' | 'submitted' | 'qa_approved'
-  // | 'revision_requested' | 'delivered' | 'cancelled'
+  // | 'revision_requested' | 'client_approved' | 'delivered' | 'cancelled'
   description: text('description'),
-  submissionLink: text('submission_link'),
-  qaApprovedLink: text('qa_approved_link'),
+  submissionLink: text('submission_link'), // Client's initial raw assets / Drive / Dropbox link
+  freelancerSubmissionLink: text('freelancer_submission_link'), // Freelancer's delivered work link
+  qaApprovedLink: text('qa_approved_link'), // QA-vetted final deliverables link
   freelancerId: integer('freelancer_id'),           // References freelancers.id
   freelancerPayoutAmount: integer('freelancer_payout_amount'),
   paymentId: text('payment_id'),

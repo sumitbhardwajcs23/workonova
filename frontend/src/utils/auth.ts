@@ -2,6 +2,7 @@ export interface UserPayload {
   id: number;
   name: string;
   email: string;
+  phone?: string;
   role: 'client' | 'freelancer' | 'admin' | 'qa_admin';
 }
 

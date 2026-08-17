@@ -4,7 +4,7 @@ import { db } from '../db/index.js';
 import { orders, clients, freelancers, admins, messages, testimonials, blogs, bundles, teamMembers } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authGuard, roleGuard } from '../middleware/auth.js';
-import { sendWelcomeEmail, sendOrderUpdateEmail } from '../utils/mailer.js';
+import { sendWelcomeEmail, sendOrderUpdateEmail, sendPayoutReleasedEmail } from '../utils/mailer.js';
 
 const adminApp = new Hono<{ Variables: { user: any } }>();
 adminApp.use('*', authGuard);
@@ -16,20 +16,19 @@ function sanitise(str: string): string {
 // ── GET All Orders (enriched with client + freelancer names) ──
 adminApp.get('/orders', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
-    const allOrders = await db.select().from(orders);
+    const [allOrders, allClients, allFreelancers] = await Promise.all([
+      db.select().from(orders),
+      db.select({ id: clients.id, name: clients.name, email: clients.email }).from(clients),
+      db.select({ id: freelancers.id, name: freelancers.name, email: freelancers.email }).from(freelancers),
+    ]);
 
-    const enriched = await Promise.all(allOrders.map(async (order) => {
-      const clientRow = await db.select({ id: clients.id, name: clients.name, email: clients.email })
-        .from(clients).where(eq(clients.id, order.clientId)).limit(1);
+    const clientMap = new Map(allClients.map(c => [c.id, c]));
+    const freelancerMap = new Map(allFreelancers.map(f => [f.id, f]));
 
-      let freelancer = null;
-      if (order.freelancerId) {
-        const fRow = await db.select({ id: freelancers.id, name: freelancers.name, email: freelancers.email })
-          .from(freelancers).where(eq(freelancers.id, order.freelancerId)).limit(1);
-        if (fRow.length > 0) freelancer = fRow[0];
-      }
-
-      return { ...order, client: clientRow[0] || null, freelancer };
+    const enriched = allOrders.map(order => ({
+      ...order,
+      client: clientMap.get(order.clientId) || null,
+      freelancer: order.freelancerId ? (freelancerMap.get(order.freelancerId) || null) : null,
     }));
 
     return c.json({ data: enriched });
@@ -103,9 +102,8 @@ adminApp.post('/users', roleGuard(['admin']), async (c) => {
       createdUser = rows[0];
     }
 
-    sendWelcomeEmail(createdUser.email, createdUser.name, role).catch(err => {
-      console.error(`❌ Failed to send welcome email to onboarded user ${createdUser.email}:`, err);
-    });
+    const sent = await sendWelcomeEmail(createdUser.email, createdUser.name, role);
+    if (!sent) console.error(`❌ Failed to send welcome email to onboarded user ${createdUser.email}`);
 
     return c.json({ data: { id: createdUser.id, name: createdUser.name, email: createdUser.email, role, services, portfolioLink } }, 201);
   } catch (err: any) {
@@ -150,11 +148,10 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin']), async (c) => {
       freelancerId, freelancerPayoutAmount: payoutAmount, status: 'assigned', updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
 
-    sendOrderUpdateEmail(flRecord[0].email, flRecord[0].name, orderId, 'New Task Assignment Available',
+    const sentAssign = await sendOrderUpdateEmail(flRecord[0].email, flRecord[0].name, orderId, 'New Task Assignment Available',
       `You have been assigned to Task #${orderId} (${updated[0].serviceCategory}). Log in to your freelancer portal to view task briefs and submit deliverables.`
-    ).catch(err => {
-      console.error(`❌ Failed to send order assignment email to freelancer ${flRecord[0].email}:`, err);
-    });
+    );
+    if (!sentAssign) console.error(`❌ Failed to send order assignment email to freelancer ${flRecord[0].email}`);
 
     return c.json({ data: updated[0] });
   } catch (err: any) {
@@ -215,7 +212,7 @@ adminApp.post('/orders/:id/qa', roleGuard(['admin', 'qa_admin']), async (c) => {
 
     if (action === 'approve') {
       statusUpdate = 'qa_approved';
-      qaLink = qaApprovedLink || orderRecord[0].submissionLink;
+      qaLink = qaApprovedLink || orderRecord[0].freelancerSubmissionLink || orderRecord[0].submissionLink;
       revComments = null;
     } else if (action === 'revision') {
       if (!comments) return c.json({ error: 'Comments are required when requesting a revision.' }, 400);
@@ -238,19 +235,130 @@ adminApp.post('/orders/:id/qa', roleGuard(['admin', 'qa_admin']), async (c) => {
     const clientRow = await db.select().from(clients).where(eq(clients.id, updated[0].clientId)).limit(1);
     if (clientRow.length > 0) {
       if (action === 'approve') {
-        sendOrderUpdateEmail(clientRow[0].email, clientRow[0].name, orderId, 'QA Approved Deliverables Available',
-          'Your project deliverables have passed QA review and are now available in your client workspace portal.').catch(err => {
-            console.error(`❌ Failed to send QA approval email to client ${clientRow[0].email}:`, err);
-          });
+        const sentApprove = await sendOrderUpdateEmail(clientRow[0].email, clientRow[0].name, orderId, 'QA Approved Deliverables Available',
+          'Your project deliverables have passed QA review and are now available in your client workspace portal for your final review & approval.');
+        if (!sentApprove) console.error(`❌ Failed to send QA approval email to client ${clientRow[0].email}`);
       } else if (action === 'revision') {
-        sendOrderUpdateEmail(clientRow[0].email, clientRow[0].name, orderId, 'Revision Requested by QA Team',
-          `Our QA team requested a revision: "${comments}"`).catch(err => {
-            console.error(`❌ Failed to send QA revision email to client ${clientRow[0].email}:`, err);
-          });
+        const sentRev = await sendOrderUpdateEmail(clientRow[0].email, clientRow[0].name, orderId, 'Revision Requested by QA Team',
+          `Our QA team requested a revision: "${comments}"`);
+        if (!sentRev) console.error(`❌ Failed to send QA revision email to client ${clientRow[0].email}`);
       }
     }
 
     return c.json({ data: updated[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── GET Financials & Razorpay Control Panel ──
+adminApp.get('/financials', roleGuard(['admin']), async (c) => {
+  try {
+    const [allOrders, allClients, allFreelancers] = await Promise.all([
+      db.select().from(orders),
+      db.select({ id: clients.id, name: clients.name, email: clients.email }).from(clients),
+      db.select({ id: freelancers.id, name: freelancers.name, email: freelancers.email }).from(freelancers),
+    ]);
+
+    const clientMap = new Map(allClients.map(cl => [cl.id, cl]));
+    const freelancerMap = new Map(allFreelancers.map(fl => [fl.id, fl]));
+
+    let totalCollected = 0;
+    let totalPayoutsReleased = 0;
+    let pendingEscrowPayouts = 0;
+
+    const transactions = allOrders.map(order => {
+      const isPaid = order.status !== 'pending_payment' && order.status !== 'cancelled';
+      if (isPaid) {
+        totalCollected += (order.price || 0);
+      }
+      if (order.status === 'delivered') {
+        totalPayoutsReleased += (order.freelancerPayoutAmount || 0);
+      } else if (['client_approved', 'qa_approved', 'submitted', 'assigned'].includes(order.status)) {
+        pendingEscrowPayouts += (order.freelancerPayoutAmount || 0);
+      }
+
+      return {
+        id: order.id,
+        clientId: order.clientId,
+        client: clientMap.get(order.clientId) || null,
+        freelancer: order.freelancerId ? (freelancerMap.get(order.freelancerId) || null) : null,
+        serviceCategory: order.serviceCategory,
+        tier: order.tier,
+        price: order.price,
+        freelancerPayoutAmount: order.freelancerPayoutAmount || 0,
+        status: order.status,
+        paymentId: order.paymentId || 'N/A',
+        razorpayOrderId: order.razorpayOrderId || 'N/A',
+        createdAt: order.createdAt,
+        updatedAt: order.updatedAt,
+      };
+    });
+
+    const netPlatformRevenue = totalCollected - totalPayoutsReleased;
+
+    return c.json({
+      summary: {
+        totalCollected,
+        totalPayoutsReleased,
+        pendingEscrowPayouts,
+        netPlatformRevenue,
+        totalTransactions: transactions.filter(t => t.paymentId && t.paymentId !== 'N/A').length,
+      },
+      transactions: transactions.sort((a, b) => b.id - a.id),
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Release Payout to Freelancer (after client approval) ──
+adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
+  try {
+    const orderId = Number(c.req.param('id'));
+
+    const existing = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+    if (existing.length === 0) return c.json({ error: 'Order not found.' }, 404);
+
+    const orderRecord = existing[0];
+    if (orderRecord.status !== 'client_approved' && orderRecord.status !== 'qa_approved') {
+      return c.json({ error: `Cannot release payout for order with status '${orderRecord.status}'. Order must be approved first.` }, 400);
+    }
+    if (!orderRecord.freelancerId) {
+      return c.json({ error: 'No freelancer assigned to this order.' }, 400);
+    }
+
+    const updated = await db.update(orders).set({
+      status: 'delivered',
+      updatedAt: new Date().toISOString(),
+    }).where(eq(orders.id, orderId)).returning();
+
+    // Log in discussion
+    await db.insert(messages).values({
+      orderId,
+      senderId: 0,
+      senderRole: 'admin',
+      messageText: `[SYSTEM] 💰 Admin approved and released ₹${(orderRecord.freelancerPayoutAmount || 0).toLocaleString('en-IN')} milestone payout to specialist. Project completed and delivered!`,
+    });
+
+    // Notify Freelancer via Email
+    const flRecord = await db.select().from(freelancers).where(eq(freelancers.id, orderRecord.freelancerId)).limit(1);
+    if (flRecord.length > 0) {
+      const sent = await sendPayoutReleasedEmail(
+        flRecord[0].email,
+        flRecord[0].name,
+        orderId,
+        orderRecord.freelancerPayoutAmount || 0,
+        orderRecord.serviceCategory
+      );
+      if (!sent) console.error(`❌ Failed to send payout released email to ${flRecord[0].email}`);
+    }
+
+    return c.json({
+      success: true,
+      message: `Payout of ₹${(orderRecord.freelancerPayoutAmount || 0).toLocaleString('en-IN')} released to specialist successfully.`,
+      data: updated[0],
+    });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -270,10 +378,9 @@ adminApp.post('/orders/:id/payout', roleGuard(['admin']), async (c) => {
     if (updated[0].freelancerId) {
       const fl = await db.select().from(freelancers).where(eq(freelancers.id, updated[0].freelancerId)).limit(1);
       if (fl.length > 0) {
-        sendOrderUpdateEmail(fl[0].email, fl[0].name, orderId, 'Payout Released',
-          `Payout of ₹${updated[0].freelancerPayoutAmount?.toLocaleString() || 0} has been released for Task #${orderId}.`).catch(err => {
-            console.error(`❌ Failed to send payout released email to freelancer ${fl[0].email}:`, err);
-          });
+        const sentPayout = await sendOrderUpdateEmail(fl[0].email, fl[0].name, orderId, 'Payout Released',
+          `Payout of ₹${updated[0].freelancerPayoutAmount?.toLocaleString() || 0} has been released for Task #${orderId}.`);
+        if (!sentPayout) console.error(`❌ Failed to send payout released email to freelancer ${fl[0].email}`);
       }
     }
 

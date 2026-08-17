@@ -181,10 +181,11 @@ export default function LandingPage() {
     const modalParam = params.get('modal');
     const roleParam = params.get('role');
     if (modalParam === 'login') {
-      if (roleParam === 'admin' || roleParam === 'client' || roleParam === 'freelancer') {
-        setInitialRole(roleParam as any);
-      }
-      openModal('login');
+      const selectedRole = (roleParam === 'admin' || roleParam === 'client' || roleParam === 'freelancer')
+        ? roleParam
+        : 'client';
+      setInitialRole(selectedRole as any);
+      openModal('login', selectedRole as any);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);

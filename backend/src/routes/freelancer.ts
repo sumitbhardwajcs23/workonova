@@ -17,12 +17,18 @@ freelancerApp.get('/tasks', async (c) => {
   try {
     const user = c.get('user');
     const assignedTasks = await db.select({
-      id: orders.id, serviceCategory: orders.serviceCategory, tier: orders.tier,
-      description: orders.description, submissionLink: orders.submissionLink,
-      qaApprovedLink: orders.qaApprovedLink, status: orders.status,
+      id: orders.id,
+      serviceCategory: orders.serviceCategory,
+      tier: orders.tier,
+      description: orders.description,
+      submissionLink: orders.submissionLink, // Client's initial raw assets / Drive / Dropbox link
+      freelancerSubmissionLink: orders.freelancerSubmissionLink, // Freelancer's delivered assets link
+      qaApprovedLink: orders.qaApprovedLink,
+      status: orders.status,
       freelancerPayoutAmount: orders.freelancerPayoutAmount,
       adminRevisionComments: orders.adminRevisionComments,
-      createdAt: orders.createdAt, updatedAt: orders.updatedAt,
+      createdAt: orders.createdAt,
+      updatedAt: orders.updatedAt,
     }).from(orders).where(eq(orders.freelancerId, user.id));
 
     return c.json({ data: assignedTasks });
@@ -42,9 +48,22 @@ freelancerApp.post('/tasks/:id/submit', async (c) => {
     const taskRecord = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.freelancerId, user.id))).limit(1);
     if (taskRecord.length === 0) return c.json({ error: 'Task not found or not assigned to you.' }, 404);
 
-    const updated = await db.update(orders).set({ submissionLink, status: 'submitted', updatedAt: new Date().toISOString() }).where(eq(orders.id, orderId)).returning();
+    // Save into freelancerSubmissionLink (preserving client's original submissionLink)
+    const updated = await db.update(orders).set({
+      freelancerSubmissionLink: submissionLink,
+      status: 'submitted',
+      updatedAt: new Date().toISOString()
+    }).where(eq(orders.id, orderId)).returning();
 
-    return c.json({ data: { id: updated[0].id, status: updated[0].status } });
+    // Insert system message to project discussion
+    await db.insert(messages).values({
+      orderId,
+      senderId: user.id,
+      senderRole: 'freelancer',
+      messageText: `[SYSTEM] 📤 Specialist uploaded completed assets for QA validation review: ${submissionLink}`,
+    });
+
+    return c.json({ data: { id: updated[0].id, status: updated[0].status, freelancerSubmissionLink: updated[0].freelancerSubmissionLink } });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
