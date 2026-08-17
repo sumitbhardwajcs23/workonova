@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import AuthModal from '../components/AuthModal';
 import { API_BASE } from '../config.js';
+import { formatImageUrl, DEFAULT_AVATAR } from '../utils/imageResolver.js';
 
 /* ─── Sub-services for hover panel ─── */
 const subServices: Record<string, string[]> = {
@@ -173,6 +174,11 @@ export default function LandingPage() {
   const [liveTeam, setLiveTeam] = useState<any[]>([]);
   const [selectedTeamMember, setSelectedTeamMember] = useState<any | null>(null);
 
+  // Gallery State
+  const [liveGallery, setLiveGallery] = useState<any[]>([]);
+  const [galleryFilter, setGalleryFilter] = useState('All');
+  const [selectedGalleryItem, setSelectedGalleryItem] = useState<any | null>(null);
+
   // State for Service and Policy Modals
   const [selectedService, setSelectedService] = useState<{ title: string; list: string[] } | null>(null);
 
@@ -236,6 +242,16 @@ export default function LandingPage() {
         }
       })
       .catch(err => console.error('Public team fetch error:', err));
+
+    // 5. Fetch Gallery
+    fetch(`${API_BASE}/api/public/gallery`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.data && data.data.length > 0) {
+          setLiveGallery(data.data);
+        }
+      })
+      .catch(err => console.error('Public gallery fetch error:', err));
   }, []);
 
   const [selectedPolicy, setSelectedPolicy] = useState<{ title: string; html: React.ReactNode } | null>(null);
@@ -264,6 +280,7 @@ export default function LandingPage() {
         <nav>
           <a href="#services">Services</a>
           <a href="#process">How it works</a>
+          <a href="#gallery">Gallery</a>
           <a href="#portfolio">Portfolio</a>
           <a href="#why">Why Workonova</a>
           <button onClick={() => setSelectedAboutModal(true)}>About Us</button>
@@ -285,7 +302,7 @@ export default function LandingPage() {
           <img src="/assets/workonova-logo.webp" alt="Workonova" />
         </a>
         <nav>
-          {[['#services','Services'],['#process','How it works'],['#portfolio','Portfolio'],['#why','Why Workonova']].map(([href, label]) => (
+          {[['#services','Services'],['#process','How it works'],['#gallery','Gallery'],['#portfolio','Portfolio'],['#why','Why Workonova']].map(([href, label]) => (
             <a key={href} href={href} onClick={() => setMobileOpen(false)}>{label}</a>
           ))}
           <button onClick={() => { setSelectedAboutModal(true); setMobileOpen(false); }}>About Us</button>
@@ -405,6 +422,109 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* ══ GALLERY & CREATIVE SHOWCASE ══ */}
+        <section className="lp-section lp-gallery-section" id="gallery" style={{ padding: '80px 24px', background: '#0a0f1d', color: '#f8fafc' }}>
+          <div className="lp-intro" style={{ textAlign: 'center', maxWidth: 840, margin: '0 auto 40px auto' }}>
+            <span style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#818cf8', fontSize: 11, fontWeight: 700, padding: '5px 14px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 0.5, border: '1px solid rgba(99, 102, 241, 0.3)' }}>
+              ⚡ Dynamic Work Gallery
+            </span>
+            <h2 style={{ fontSize: 36, fontFamily: "'Fraunces', Georgia, serif", color: '#ffffff', margin: '16px 0 12px 0' }}>
+              Explore Our Live Media &amp; Project Showcase
+            </h2>
+            <p style={{ color: '#94a3b8', fontSize: 15, lineHeight: 1.6 }}>
+              From high-conversion SaaS web applications to 4K cinematic commercials and 3D product animations.
+            </p>
+
+            {/* Filter Pills */}
+            <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 8, marginTop: 24 }}>
+              {['All', 'Website Development', 'Graphic Design', 'Video Editing', '3D Design & Modeling', 'AI Services'].map(cat => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setGalleryFilter(cat)}
+                  style={{
+                    background: galleryFilter === cat ? '#6366f1' : 'rgba(255, 255, 255, 0.06)',
+                    color: galleryFilter === cat ? '#ffffff' : '#94a3b8',
+                    border: galleryFilter === cat ? '1px solid #6366f1' : '1px solid rgba(255, 255, 255, 0.1)',
+                    borderRadius: 20,
+                    padding: '6px 16px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                  }}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Gallery Media Grid */}
+          <div style={{ maxWidth: 1200, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
+            {(liveGallery.filter(item => galleryFilter === 'All' || item.category === galleryFilter || (galleryFilter === 'Graphic Design' && (item.category === 'Graphic Designing' || item.category === 'Graphic Design')))).map((item, idx) => (
+              <article
+                key={item.id || idx}
+                onClick={() => setSelectedGalleryItem(item)}
+                style={{
+                  background: 'rgba(30, 41, 59, 0.6)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
+                  borderRadius: 16,
+                  overflow: 'hidden',
+                  cursor: 'pointer',
+                  transition: 'transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'translateY(-4px)';
+                  e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)';
+                  e.currentTarget.style.boxShadow = '0 12px 24px rgba(0, 0, 0, 0.4)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = 'none';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.08)';
+                  e.currentTarget.style.boxShadow = 'none';
+                }}
+              >
+                {/* Media Container */}
+                <div style={{ height: 210, position: 'relative', overflow: 'hidden', background: '#000' }}>
+                  <img
+                    src={formatImageUrl(item.thumbnailUrl || item.mediaUrl)}
+                    alt={item.title}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1460925895917-afdab827c52f?auto=format&fit=crop&w=600&q=80';
+                    }}
+                  />
+                  {item.mediaType === 'video' && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0, 0, 0, 0.3)' }}>
+                      <div style={{ width: 50, height: 50, borderRadius: '50%', background: 'rgba(99, 102, 241, 0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 20, paddingLeft: 3 }}>
+                        ▶
+                      </div>
+                    </div>
+                  )}
+                  <span style={{ position: 'absolute', top: 12, left: 12, background: 'rgba(15, 23, 42, 0.85)', color: '#38bdf8', fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, backdropFilter: 'blur(4px)' }}>
+                    {item.category}
+                  </span>
+                  {item.mediaType === 'video' && (
+                    <span style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4 }}>
+                      VIDEO
+                    </span>
+                  )}
+                </div>
+
+                {/* Info Container */}
+                <div style={{ padding: '20px' }}>
+                  <h3 style={{ margin: '0 0 6px', fontSize: 17, color: '#ffffff', fontWeight: 700 }}>{item.title}</h3>
+                  {item.clientName && <p style={{ margin: '0 0 8px', fontSize: 12, color: '#818cf8', fontWeight: 600 }}>Brand: {item.clientName}</p>}
+                  <p style={{ margin: 0, fontSize: 13, color: '#94a3b8', lineHeight: 1.5 }}>
+                    {item.description || 'Verified production deliverable engineered by Workonova specialists.'}
+                  </p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
         {/* ══ PORTFOLIO ══ */}
         <section className="lp-portfolio" id="portfolio">
           <div className="lp-section lp-portfolio-heading">
@@ -452,7 +572,14 @@ export default function LandingPage() {
             {(liveTeam.length > 0 ? liveTeam : defaultTeam).map(m => (
               <article key={m.name} className="lp-team-card" onClick={() => setSelectedTeamMember(m)}>
                 <div className="lp-team-img-wrapper">
-                  <img src={m.image} alt={m.name} className="lp-team-img" />
+                  <img
+                    src={formatImageUrl(m.image) || DEFAULT_AVATAR}
+                    alt={m.name}
+                    className="lp-team-img"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
+                    }}
+                  />
                 </div>
                 <span className="lp-team-label-role">{m.role}</span>
                 <h3>{m.name}</h3>
@@ -679,7 +806,14 @@ export default function LandingPage() {
             </div>
             <div className="lp-modal-body">
               <div className="lp-team-modal-layout">
-                <img src={selectedTeamMember.image} alt={selectedTeamMember.name} className="lp-team-modal-photo" />
+                <img
+                  src={formatImageUrl(selectedTeamMember.image) || DEFAULT_AVATAR}
+                  alt={selectedTeamMember.name}
+                  className="lp-team-modal-photo"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
+                  }}
+                />
                 <div className="lp-team-modal-info">
                   <h2>{selectedTeamMember.name}</h2>
                   <h3>{selectedTeamMember.role}</h3>
@@ -695,6 +829,56 @@ export default function LandingPage() {
             </div>
             <div className="lp-modal-footer">
               <button className="btn-primary" onClick={() => setSelectedTeamMember(null)}>Close Profile</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ══ GALLERY LIGHTBOX / VIDEO POPUP MODAL ══ */}
+      {selectedGalleryItem && (
+        <div className="lp-modal-backdrop" onClick={() => setSelectedGalleryItem(null)}>
+          <div className="lp-modal-window" onClick={e => e.stopPropagation()} style={{ maxWidth: 780, background: '#0f172a', color: '#ffffff', borderRadius: 16 }}>
+            <div className="lp-modal-header" style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.1)', padding: '16px 24px' }}>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 18, color: '#ffffff' }}>{selectedGalleryItem.title}</h3>
+                <small style={{ color: '#38bdf8' }}>{selectedGalleryItem.category} {selectedGalleryItem.clientName ? `• ${selectedGalleryItem.clientName}` : ''}</small>
+              </div>
+              <button className="lp-modal-close" onClick={() => setSelectedGalleryItem(null)} style={{ color: '#94a3b8' }}>×</button>
+            </div>
+            <div className="lp-modal-body" style={{ padding: 24, textAlign: 'center' }}>
+              {selectedGalleryItem.mediaType === 'video' ? (
+                <div style={{ width: '100%', height: 400, background: '#000', borderRadius: 12, overflow: 'hidden' }}>
+                  {selectedGalleryItem.mediaUrl.includes('youtube.com') || selectedGalleryItem.mediaUrl.includes('youtu.be') ? (
+                    <iframe
+                      src={selectedGalleryItem.mediaUrl.replace('watch?v=', 'embed/')}
+                      title={selectedGalleryItem.title}
+                      style={{ width: '100%', height: '100%', border: 'none' }}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  ) : (
+                    <video src={selectedGalleryItem.mediaUrl} style={{ width: '100%', height: '100%', objectFit: 'contain' }} controls autoPlay />
+                  )}
+                </div>
+              ) : (
+                <div style={{ borderRadius: 12, overflow: 'hidden', maxHeight: 480, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+                  <img
+                    src={selectedGalleryItem.mediaUrl}
+                    alt={selectedGalleryItem.title}
+                    style={{ maxWidth: '100%', maxHeight: 480, objectFit: 'contain' }}
+                  />
+                </div>
+              )}
+              {selectedGalleryItem.description && (
+                <p style={{ marginTop: 16, fontSize: 14, color: '#cbd5e1', textAlign: 'left', lineHeight: 1.6 }}>
+                  {selectedGalleryItem.description}
+                </p>
+              )}
+            </div>
+            <div className="lp-modal-footer" style={{ borderTop: '1px solid rgba(255, 255, 255, 0.1)', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button type="button" className="btn-ghost" onClick={() => setSelectedGalleryItem(null)} style={{ color: '#94a3b8' }}>Close</button>
+              <button className="lp-pill lp-bright" onClick={() => { setSelectedGalleryItem(null); openModal('signup'); }}>
+                Build Something Similar →
+              </button>
             </div>
           </div>
         </div>

@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
 import { clients, freelancers, admins, otpTokens } from '../db/schema.js';
 import { eq, and, gt } from 'drizzle-orm';
-import { sendWelcomeEmail, sendOtpEmail, sendPasswordResetEmail } from '../utils/mailer.js';
+import { sendWelcomeEmail, sendOtpEmail, sendPasswordResetEmail, sendEmailChangeOtpEmail } from '../utils/mailer.js';
 
 const authApp = new Hono();
 export const JWT_SECRET = process.env.JWT_SECRET || 'worknova-secret-key-123456';
@@ -20,7 +20,7 @@ function generateOtp(): string {
 }
 
 // ── Persist OTP to DB ──
-async function persistOtp(email: string, type: 'verify_email' | 'forgot_password'): Promise<string> {
+async function persistOtp(email: string, type: 'verify_email' | 'forgot_password' | 'change_email'): Promise<string> {
   const code = generateOtp();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
   console.log(`📧 Generated OTP for ${email} (type: ${type})`);
@@ -31,7 +31,7 @@ async function persistOtp(email: string, type: 'verify_email' | 'forgot_password
 }
 
 // ── Validate OTP from DB ──
-async function validateOtp(email: string, code: string, type: 'verify_email' | 'forgot_password'): Promise<boolean> {
+async function validateOtp(email: string, code: string, type: 'verify_email' | 'forgot_password' | 'change_email'): Promise<boolean> {
   const now = new Date().toISOString();
   const row = await db.select().from(otpTokens).where(
     and(
@@ -193,9 +193,10 @@ authApp.post('/register', async (c) => {
       }).returning();
       newUser = { ...rows[0], role: 'client' };
     } else {
+      const cappedServices = Array.isArray(services) ? services.slice(0, 4) : [];
       const rows = await db.insert(freelancers).values({
         name, email, passwordHash, phone,
-        services: services.length > 0 ? JSON.stringify(services) : null,
+        services: cappedServices.length > 0 ? JSON.stringify(cappedServices) : null,
         portfolioLink: portfolioLink || null,
         status: 'pending_verification',
         emailVerified: 0,
@@ -408,6 +409,193 @@ authApp.get('/me', async (c) => {
   const user = await getAuthUser(c);
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
   return c.json({ user });
+});
+
+// ═══════════════════════════════════════════
+// GET /api/auth/profile
+// Returns full profile for the authenticated client or freelancer
+// ═══════════════════════════════════════════
+authApp.get('/profile', async (c) => {
+  try {
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ error: 'Unauthorized' }, 401);
+
+    if (authUser.role === 'client') {
+      const rows = await db.select().from(clients).where(eq(clients.id, authUser.id)).limit(1);
+      if (rows.length === 0) return c.json({ error: 'Client not found' }, 404);
+      const { passwordHash, ...safeClient } = rows[0];
+      return c.json({
+        profile: {
+          ...safeClient,
+          role: 'client',
+          services: safeClient.services ? JSON.parse(safeClient.services) : [],
+        }
+      });
+    } else if (authUser.role === 'freelancer') {
+      const rows = await db.select().from(freelancers).where(eq(freelancers.id, authUser.id)).limit(1);
+      if (rows.length === 0) return c.json({ error: 'Freelancer not found' }, 404);
+      const { passwordHash, ...safeFreelancer } = rows[0];
+      return c.json({
+        profile: {
+          ...safeFreelancer,
+          role: 'freelancer',
+          services: safeFreelancer.services ? JSON.parse(safeFreelancer.services) : [],
+          bankDetails: safeFreelancer.bankDetails ? JSON.parse(safeFreelancer.bankDetails) : null,
+        }
+      });
+    } else {
+      return c.json({ profile: { id: authUser.id, name: authUser.name, email: authUser.email, role: 'admin' } });
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════
+// PUT /api/auth/profile
+// Updates profile details (Name, Phone, Vetted Services, Portfolio, etc.)
+// ═══════════════════════════════════════════
+authApp.put('/profile', async (c) => {
+  try {
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ error: 'Unauthorized' }, 401);
+
+    const body = await c.req.json();
+    const name = body.name ? sanitise(body.name) : undefined;
+    const phone = body.phone ? sanitise(body.phone) : undefined;
+    const services = Array.isArray(body.services) ? (authUser.role === 'freelancer' ? body.services.slice(0, 4) : body.services) : undefined;
+    const portfolioLink = body.portfolioLink !== undefined ? body.portfolioLink : undefined;
+    const bankDetails = body.bankDetails !== undefined ? JSON.stringify(body.bankDetails) : undefined;
+
+    if (authUser.role === 'client') {
+      const updateData: any = {};
+      if (name) updateData.name = name;
+      if (phone) updateData.phone = phone;
+      if (services) updateData.services = JSON.stringify(services);
+
+      await db.update(clients).set(updateData).where(eq(clients.id, authUser.id));
+      const updated = await db.select().from(clients).where(eq(clients.id, authUser.id)).limit(1);
+      const { passwordHash, ...safeClient } = updated[0];
+      return c.json({
+        message: 'Profile updated successfully',
+        profile: {
+          ...safeClient,
+          role: 'client',
+          services: safeClient.services ? JSON.parse(safeClient.services) : [],
+        }
+      });
+    } else if (authUser.role === 'freelancer') {
+      const updateData: any = {};
+      if (name) updateData.name = name;
+      if (phone) updateData.phone = phone;
+      if (services) updateData.services = JSON.stringify(services);
+      if (portfolioLink !== undefined) updateData.portfolioLink = portfolioLink;
+      if (bankDetails !== undefined) updateData.bankDetails = bankDetails;
+
+      await db.update(freelancers).set(updateData).where(eq(freelancers.id, authUser.id));
+      const updated = await db.select().from(freelancers).where(eq(freelancers.id, authUser.id)).limit(1);
+      const { passwordHash, ...safeFreelancer } = updated[0];
+      return c.json({
+        message: 'Profile updated successfully',
+        profile: {
+          ...safeFreelancer,
+          role: 'freelancer',
+          services: safeFreelancer.services ? JSON.parse(safeFreelancer.services) : [],
+          bankDetails: safeFreelancer.bankDetails ? JSON.parse(safeFreelancer.bankDetails) : null,
+        }
+      });
+    } else {
+      return c.json({ error: 'Profile edit not available for admin role here.' }, 400);
+    }
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════
+// POST /api/auth/profile/request-email-change
+// Sends a 6-digit OTP to the newly entered email address
+// ═══════════════════════════════════════════
+authApp.post('/profile/request-email-change', async (c) => {
+  try {
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ error: 'Unauthorized' }, 401);
+
+    const { newEmail } = await c.req.json();
+    const cleanEmail = sanitise(newEmail || '').toLowerCase();
+
+    if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return c.json({ error: 'Please provide a valid email address.' }, 400);
+    }
+
+    if (cleanEmail === authUser.email.toLowerCase()) {
+      return c.json({ error: 'New email address is the same as your current email.' }, 400);
+    }
+
+    // Check if new email is already taken
+    const existing = await findUserByEmail(cleanEmail);
+    if (existing) {
+      return c.json({ error: 'This email address is already registered to another account.' }, 400);
+    }
+
+    // Generate & send OTP
+    const otpCode = await persistOtp(cleanEmail, 'change_email');
+    await sendEmailChangeOtpEmail(cleanEmail, authUser.name, otpCode);
+
+    return c.json({ message: `Verification code sent to ${cleanEmail}` });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ═══════════════════════════════════════════
+// POST /api/auth/profile/verify-email-change
+// Verifies OTP and permanently commits email change
+// ═══════════════════════════════════════════
+authApp.post('/profile/verify-email-change', async (c) => {
+  try {
+    const authUser = await getAuthUser(c);
+    if (!authUser) return c.json({ error: 'Unauthorized' }, 401);
+
+    const { newEmail, otp } = await c.req.json();
+    const cleanEmail = sanitise(newEmail || '').toLowerCase();
+
+    if (!cleanEmail || !otp) {
+      return c.json({ error: 'New email and OTP are required.' }, 400);
+    }
+
+    const isValid = await validateOtp(cleanEmail, otp.toString().trim(), 'change_email');
+    if (!isValid) {
+      return c.json({ error: 'Invalid or expired OTP. Please request a new code.' }, 400);
+    }
+
+    // Update in database
+    if (authUser.role === 'client') {
+      await db.update(clients).set({ email: cleanEmail }).where(eq(clients.id, authUser.id));
+    } else if (authUser.role === 'freelancer') {
+      await db.update(freelancers).set({ email: cleanEmail }).where(eq(freelancers.id, authUser.id));
+    } else {
+      await db.update(admins).set({ email: cleanEmail }).where(eq(admins.id, authUser.id));
+    }
+
+    // Issue updated JWT token
+    const token = await sign({
+      id: authUser.id,
+      name: authUser.name,
+      email: cleanEmail,
+      role: authUser.role,
+      emailVerified: 1,
+      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 7,
+    }, JWT_SECRET);
+
+    return c.json({
+      message: 'Email address updated successfully!',
+      token,
+      email: cleanEmail,
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
 });
 
 // ── Auth Context Helper (used by other routes) ──

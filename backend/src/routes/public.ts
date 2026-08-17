@@ -1,9 +1,38 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { testimonials, blogs, bundles, teamMembers } from '../db/schema.js';
+import { testimonials, blogs, bundles, teamMembers, gallery } from '../db/schema.js';
 import { eq, asc } from 'drizzle-orm';
+import { resolveDirectImageUrl } from '../utils/imageResolver.js';
 
 const publicApp = new Hono();
+
+// ── GET Resolve Image URL (ImgBB, Google Drive, Dropbox, Imgur, etc.) ──
+publicApp.get('/resolve-image', async (c) => {
+  try {
+    const rawUrl = c.req.query('url');
+    if (!rawUrl) {
+      return c.json({ error: 'URL query parameter is required' }, 400);
+    }
+    const directUrl = await resolveDirectImageUrl(rawUrl);
+    return c.json({
+      originalUrl: rawUrl,
+      directUrl: directUrl || rawUrl,
+      resolved: directUrl !== rawUrl
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message, directUrl: c.req.query('url') }, 500);
+  }
+});
+
+// ── GET Gallery / Portfolio Media (no auth required — for landing page) ──
+publicApp.get('/gallery', async (c) => {
+  try {
+    const list = await db.select().from(gallery).where(eq(gallery.featured, 1)).orderBy(asc(gallery.orderIndex));
+    return c.json({ data: list });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
 
 // ── GET Approved Testimonials (no auth required — for landing page) ──
 publicApp.get('/testimonials', async (c) => {
@@ -64,5 +93,3 @@ publicApp.get('/team', async (c) => {
 });
 
 export default publicApp;
-
-

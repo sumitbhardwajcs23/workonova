@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { getUser, getToken, logout } from '../utils/auth.js';
 import WelcomePopup from '../components/WelcomePopup.tsx';
+import { downloadFreelancerPayoutVoucherPDF } from '../utils/pdfInvoice.js';
 import { API_BASE } from '../config.js';
 import './FreelancerDashboard.css';
 
@@ -11,9 +12,16 @@ interface Task {
   description: string;
   submissionLink: string; // Client's initial raw assets / Drive / Dropbox link
   freelancerSubmissionLink?: string; // Freelancer's delivered assets link
+  midpointSubmissionLink?: string;
+  midpointSubmissionNotes?: string;
+  midpointApprovedAt?: string;
   qaApprovedLink?: string;
   status: string;
+  milestoneStage?: number;
+  amountPaid?: number;
   freelancerPayoutAmount: number;
+  payoutStatus?: string;
+  payoutReleasedAt?: string;
   adminRevisionComments?: string;
   createdAt: string;
   updatedAt?: string;
@@ -44,8 +52,7 @@ const getTechTags = (category: string) => {
 };
 
 const getClientName = (taskId: number) => {
-  const clients = ['StartupX', 'RetailFlow India', 'NovaSaaS', 'FitPeak Fitness', 'NorthStar Agency'];
-  return clients[taskId % clients.length];
+  return `Client #WN-${taskId}`;
 };
 
 function getInitials(name: string) {
@@ -72,9 +79,25 @@ export default function FreelancerDashboard() {
   const [submittingTask, setSubmittingTask] = useState<Task | null>(null);
   const [deliveryLink, setDeliveryLink] = useState('');
 
+  // 50% Midpoint Modal State
+  const [midpointModalTask, setMidpointModalTask] = useState<Task | null>(null);
+  const [midpointLink, setMidpointLink] = useState('');
+  const [midpointNotes, setMidpointNotes] = useState('');
+  const [midpointSubmitting, setMidpointSubmitting] = useState(false);
+
   // Profile & Bank Details State
-  const [profile, setProfile] = useState<{ services: string[]; portfolioLink?: string; bankDetails?: any } | null>(null);
-  const [editingProfile, setEditingProfile] = useState(false);
+  const [profile, setProfile] = useState<{ name?: string; email?: string; phone?: string; services: string[]; portfolioLink?: string; bankDetails?: any } | null>(null);
+  const [editName, setEditName] = useState(user?.name || '');
+  const [editPhone, setEditPhone] = useState((user as any)?.phone || '');
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const [profileSaving, setProfileSaving] = useState(false);
+
+  // Email Change OTP State
+  const [emailChangeModalOpen, setEmailChangeModalOpen] = useState(false);
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [emailOtpInput, setEmailOtpInput] = useState('');
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
+
   const [bankForm, setBankForm] = useState({
     accountName: '',
     accountNumber: '',
@@ -83,6 +106,24 @@ export default function FreelancerDashboard() {
     bankName: '',
     portfolioLink: '',
   });
+
+  const ALL_SERVICES = [
+    'Graphic Designing', 'Video Editing', '3D Design & Modeling', 'VFX',
+    'Animation', 'Digital Marketing', 'Website Development', 'Software Development',
+    'App Development', 'AI Services', 'IT Services', 'Cyber Security'
+  ];
+
+  const handleToggleService = (service: string) => {
+    if (selectedServices.includes(service)) {
+      setSelectedServices(selectedServices.filter(s => s !== service));
+    } else {
+      if (selectedServices.length >= 4) {
+        triggerToast('⚠️ Maximum 4 vetted services allowed.');
+        return;
+      }
+      setSelectedServices([...selectedServices, service]);
+    }
+  };
 
   // Chat State
   const [activeChatTask, setActiveChatTask] = useState<Task | null>(null);
@@ -124,19 +165,22 @@ export default function FreelancerDashboard() {
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/freelancer/profile`, {
+      const res = await fetch(`${API_BASE}/api/auth/profile`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (res.ok && data.data) {
-        setProfile(data.data);
+      if (res.ok && data.profile) {
+        setProfile(data.profile);
+        setEditName(data.profile.name || user?.name || '');
+        setEditPhone(data.profile.phone || '');
+        setSelectedServices(Array.isArray(data.profile.services) ? data.profile.services : []);
         setBankForm({
-          accountName: data.data.bankDetails?.accountName || '',
-          accountNumber: data.data.bankDetails?.accountNumber || '',
-          ifscCode: data.data.bankDetails?.ifscCode || '',
-          upiId: data.data.bankDetails?.upiId || '',
-          bankName: data.data.bankDetails?.bankName || '',
-          portfolioLink: data.data.portfolioLink || '',
+          accountName: data.profile.bankDetails?.accountName || '',
+          accountNumber: data.profile.bankDetails?.accountNumber || '',
+          ifscCode: data.profile.bankDetails?.ifscCode || '',
+          upiId: data.profile.bankDetails?.upiId || '',
+          bankName: data.profile.bankDetails?.bankName || '',
+          portfolioLink: data.profile.portfolioLink || '',
         });
       }
     } catch (e) {
@@ -144,20 +188,29 @@ export default function FreelancerDashboard() {
     }
   };
 
-  const handleSaveBankDetails = async (e: React.FormEvent) => {
+  const handleSaveFullProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
+    if (selectedServices.length === 0) {
+      triggerToast('⚠️ Please select at least 1 vetted service.');
+      return;
+    }
+    if (selectedServices.length > 4) {
+      triggerToast('⚠️ You can select a maximum of 4 services.');
+      return;
+    }
+    setProfileSaving(true);
     try {
-      const res = await fetch(`${API_BASE}/api/freelancer/profile`, {
+      const res = await fetch(`${API_BASE}/api/auth/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`
         },
         body: JSON.stringify({
+          name: editName,
+          phone: editPhone,
           portfolioLink: bankForm.portfolioLink,
-          services: profile?.services || [],
+          services: selectedServices,
           bankDetails: {
             accountName: bankForm.accountName,
             accountNumber: bankForm.accountNumber,
@@ -169,11 +222,103 @@ export default function FreelancerDashboard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update profile');
-      setSuccess('Bank payout details updated successfully!');
-      setEditingProfile(false);
+      triggerToast('✅ Profile & Vetted Services updated successfully!');
+      fetchProfile();
+      const cur = getUser();
+      if (cur) {
+        cur.name = editName;
+        (cur as any).phone = editPhone;
+        localStorage.setItem('workonova_user', JSON.stringify(cur));
+      }
+    } catch (err: any) {
+      triggerToast('❌ Error: ' + err.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleRequestEmailChange = async () => {
+    if (!newEmailInput || !newEmailInput.includes('@')) {
+      triggerToast('⚠️ Please enter a valid new email address.');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/profile/request-email-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newEmail: newEmailInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send OTP to new email');
+      setEmailOtpSent(true);
+      triggerToast(`📧 Verification OTP sent to ${newEmailInput}`);
+    } catch (err: any) {
+      triggerToast('❌ Error: ' + err.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleVerifyEmailChange = async () => {
+    if (!emailOtpInput || emailOtpInput.trim().length !== 6) {
+      triggerToast('⚠️ Please enter the 6-digit OTP received in email.');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/profile/verify-email-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newEmail: newEmailInput, otp: emailOtpInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Invalid OTP');
+      if (data.token) {
+        localStorage.setItem('workonova_token', data.token);
+      }
+      const cur = getUser();
+      if (cur) {
+        cur.email = data.email || newEmailInput;
+        localStorage.setItem('workonova_user', JSON.stringify(cur));
+      }
+      triggerToast('🎉 Email address successfully updated!');
+      setEmailChangeModalOpen(false);
+      setNewEmailInput('');
+      setEmailOtpInput('');
+      setEmailOtpSent(false);
       fetchProfile();
     } catch (err: any) {
-      setError(err.message);
+      triggerToast('❌ Error: ' + err.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleSubmitMidpoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!midpointLink || !midpointModalTask) return;
+    setMidpointSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/freelancer/tasks/${midpointModalTask.id}/submit-midpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          midpointSubmissionLink: midpointLink,
+          midpointSubmissionNotes: midpointNotes,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to submit 50% midpoint work');
+      triggerToast('🎉 50% Midpoint work submitted! Client notified for review.');
+      setMidpointModalTask(null);
+      setMidpointLink('');
+      setMidpointNotes('');
+      fetchTasks();
+    } catch (err: any) {
+      triggerToast('❌ Error: ' + err.message);
+    } finally {
+      setMidpointSubmitting(false);
     }
   };
 
@@ -287,7 +432,6 @@ export default function FreelancerDashboard() {
 
   // ── COUNTS & FILTERING ────────────────────────────────────────
   const activeTasks = tasksList.filter(t => !['delivered', 'cancelled'].includes(t.status));
-  const completedTasks = tasksList.filter(t => t.status === 'delivered');
 
   const getCategoryFromService = (service: string): string => {
     const s = service.toLowerCase();
@@ -532,11 +676,74 @@ export default function FreelancerDashboard() {
                           <button className="fd-action-btn" onClick={() => setActiveChatTask(task)}>
                             💬 Ask Clarification
                           </button>
-                          {['assigned', 'revision_requested'].includes(task.status) && (
-                            <button className="fd-action-btn primary" onClick={() => setSubmittingTask(task)}>
-                              📤 Open Full Workspace →
+
+                          {/* 50% Midpoint Submission Trigger */}
+                          {['assigned', 'paid_50'].includes(task.status) && (
+                            <button
+                              className="fd-action-btn primary"
+                              style={{ background: '#6366f1', borderColor: '#4f46e5' }}
+                              onClick={() => {
+                                setMidpointModalTask(task);
+                                setMidpointLink('');
+                                setMidpointNotes('');
+                              }}
+                            >
+                              📤 Submit 50% Midpoint Deliverable →
                             </button>
                           )}
+
+                          {task.status === 'midpoint_submitted' && (
+                            <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, padding: '6px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: 6, border: '1px solid #f59e0b' }}>
+                              ⏳ 50% Midpoint Under Client Review
+                            </span>
+                          )}
+
+                          {/* 100% Final Deliverables Trigger */}
+                          {['midpoint_approved', 'paid_75', 'revision_requested'].includes(task.status) && (
+                            <button
+                              className="fd-action-btn primary"
+                              style={{ background: '#10b981', borderColor: '#059669' }}
+                              onClick={() => setSubmittingTask(task)}
+                            >
+                              🚀 Deliver 100% Final Work →
+                            </button>
+                          )}
+
+                          {['submitted', 'qa_approved'].includes(task.status) && (
+                            <span style={{ fontSize: 12, color: '#818cf8', fontWeight: 600, padding: '6px 12px', background: 'rgba(129, 140, 248, 0.1)', borderRadius: 6, border: '1px solid #818cf8' }}>
+                              ⏳ Final Deliverables Under QA &amp; Client Review
+                            </span>
+                          )}
+
+                          {task.status === 'client_approved' && (
+                            <span style={{ fontSize: 12, color: '#34d399', fontWeight: 600, padding: '6px 12px', background: 'rgba(52, 211, 153, 0.1)', borderRadius: 6, border: '1px solid #34d399' }}>
+                              🛡️ Client Approved · Payout Regulated by Admin
+                            </span>
+                          )}
+
+                          {['completed', 'delivered'].includes(task.status) && (
+                            <button
+                              className="fd-action-btn"
+                              style={{ background: '#064e3b', color: '#34d399', borderColor: '#10b981', fontWeight: 'bold' }}
+                              onClick={() => {
+                                downloadFreelancerPayoutVoucherPDF({
+                                  orderId: task.id,
+                                  freelancerName: profile?.name || user?.name || 'Vetted Specialist',
+                                  freelancerEmail: profile?.email || user?.email || 'specialist@workonova.com',
+                                  serviceCategory: task.serviceCategory,
+                                  tier: task.tier || 'STANDARD',
+                                  payoutAmount: task.freelancerPayoutAmount || 10000,
+                                  payoutStatus: task.payoutStatus || 'payout_released',
+                                  payoutReleasedAt: task.payoutReleasedAt,
+                                  date: new Date(task.updatedAt || task.createdAt).toLocaleDateString('en-IN'),
+                                });
+                                triggerToast(`📥 Downloaded Payout Voucher #WN-PAYOUT-WN-${task.id}.pdf`);
+                              }}
+                            >
+                              📄 Download Payout PDF Voucher
+                            </button>
+                          )}
+
                           <button className="fd-action-btn" onClick={() => triggerToast('📅 Extension request details sent to QA Admin.')}>
                             📅 Request Extension
                           </button>
@@ -548,65 +755,273 @@ export default function FreelancerDashboard() {
               </>
             )}
 
-            {/* ════ EARNINGS LEDGER ════ */}
+            {/* ════ EARNINGS & PAYOUT LEDGER ════ */}
             {currentView === 'ledger' && (
               <>
                 <div className="fd-view-header">
                   <p>Payout Ledger</p>
-                  <h1>Earnings &amp; Invoices</h1>
+                  <h1>Earnings &amp; Admin-Regulated Payouts</h1>
                 </div>
                 <div className="cd-kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
-                  <div className="cd-kpi-card"><div className="cd-kpi-icon money">₹</div><div><b>₹{completedTasks.reduce((acc, t) => acc + (t.freelancerPayoutAmount || 0), 0).toLocaleString()}</b><small>Earned Payouts</small></div></div>
-                  <div className="cd-kpi-card"><div className="cd-kpi-icon live">⚡</div><div><b>₹{activeTasks.filter(t => t.status === 'qa_approved').reduce((acc, t) => acc + (t.freelancerPayoutAmount || 0), 0).toLocaleString()}</b><small>Pending Payouts</small></div></div>
-                  <div className="cd-kpi-card"><div className="cd-kpi-icon done">✓</div><div><b>{completedTasks.length}</b><small>Completed Deliveries</small></div></div>
+                  <div className="cd-kpi-card"><div className="cd-kpi-icon money">₹</div><div><b>₹{tasksList.filter(t => t.payoutStatus === 'payout_released' || t.status === 'completed' || t.status === 'delivered').reduce((acc, t) => acc + (t.freelancerPayoutAmount || 0), 0).toLocaleString()}</b><small>Disbursed Payouts</small></div></div>
+                  <div className="cd-kpi-card"><div className="cd-kpi-icon live">⚡</div><div><b>₹{tasksList.filter(t => ['client_approved', 'qa_approved'].includes(t.status) && t.payoutStatus !== 'payout_released').reduce((acc, t) => acc + (t.freelancerPayoutAmount || 0), 0).toLocaleString()}</b><small>In Admin Regulation Queue</small></div></div>
+                  <div className="cd-kpi-card"><div className="cd-kpi-icon done">✓</div><div><b>{tasksList.filter(t => ['completed', 'delivered'].includes(t.status)).length}</b><small>Completed Deliveries</small></div></div>
                 </div>
 
-                <p className="cd-section-title">Transactions Ledger</p>
+                <p className="cd-section-title">Specialist Payout Statements</p>
                 <div className="fd-ledger">
-                  {completedTasks.map(t => (
-                    <div className="fd-ledger-item" key={t.id}>
-                      <div className="fd-ledger-info">
-                        <b>Task #{t.id} - {t.serviceCategory}</b>
-                        <small>Completed on {new Date(t.updatedAt || t.createdAt).toLocaleDateString()}</small>
+                  {tasksList.map(t => {
+                    const isDisbursed = t.payoutStatus === 'payout_released' || t.status === 'completed' || t.status === 'delivered';
+                    const isApproved = t.payoutStatus === 'payout_approved';
+                    return (
+                      <div className="fd-ledger-item" key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                        <div className="fd-ledger-info">
+                          <b>Task #WN-{t.id} — {t.serviceCategory}</b>
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              padding: '2px 8px',
+                              borderRadius: 4,
+                              background: isDisbursed ? 'rgba(16, 185, 129, 0.15)' : isApproved ? 'rgba(99, 102, 241, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                              color: isDisbursed ? '#34d399' : isApproved ? '#a5b4fc' : '#fbbf24',
+                              border: `1px solid ${isDisbursed ? '#10b981' : isApproved ? '#6366f1' : '#f59e0b'}`
+                            }}>
+                              {isDisbursed ? '✓ PAYOUT RELEASED' : isApproved ? '🛡️ ADMIN APPROVED' : '⏳ PENDING ADMIN REGULATION'}
+                            </span>
+                            <small style={{ color: '#94a3b8' }}>Updated: {new Date(t.updatedAt || t.createdAt).toLocaleDateString()}</small>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <span className="fd-ledger-amount" style={{ color: isDisbursed ? '#34d399' : '#a5b4fc' }}>
+                            ₹{t.freelancerPayoutAmount?.toLocaleString() || 0}
+                          </span>
+                          <button
+                            style={{
+                              background: '#1e293b',
+                              border: '1px solid #475569',
+                              color: '#ffffff',
+                              padding: '6px 12px',
+                              borderRadius: 6,
+                              fontSize: 12,
+                              fontWeight: 600,
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}
+                            onClick={() => {
+                              downloadFreelancerPayoutVoucherPDF({
+                                orderId: t.id,
+                                freelancerName: profile?.name || user?.name || 'Vetted Specialist',
+                                freelancerEmail: profile?.email || user?.email || 'specialist@workonova.com',
+                                serviceCategory: t.serviceCategory,
+                                tier: t.tier || 'STANDARD',
+                                payoutAmount: t.freelancerPayoutAmount || 10000,
+                                payoutStatus: t.payoutStatus || 'pending_admin_approval',
+                                payoutReleasedAt: t.payoutReleasedAt,
+                                date: new Date(t.updatedAt || t.createdAt).toLocaleDateString('en-IN'),
+                              });
+                              triggerToast(`📄 Downloaded Voucher #WN-PAYOUT-WN-${t.id}.pdf`);
+                            }}
+                          >
+                            📥 Download PDF Voucher
+                          </button>
+                        </div>
                       </div>
-                      <span className="fd-ledger-amount">+ ₹{t.freelancerPayoutAmount?.toLocaleString() || 0}</span>
-                    </div>
-                  ))}
-                  {completedTasks.length === 0 && (
+                    );
+                  })}
+                  {tasksList.length === 0 && (
                     <p className="fd-empty-text">No payout transactions recorded yet. Complete a task assignment to start earning payouts.</p>
                   )}
                 </div>
               </>
             )}
 
-            {/* ════ PROFILE SETTINGS ════ */}
+            {/* ════ PROFILE & VETTED SERVICES SETTINGS ════ */}
             {currentView === 'profile' && (
               <>
                 <div className="fd-view-header">
-                  <p>Onboarding</p>
-                  <h1>Profile Settings</h1>
+                  <p>Specialist Account</p>
+                  <h1>Profile &amp; Vetted Services Settings</h1>
                 </div>
-                <div className="fd-profile-grid">
+                <div className="fd-profile-grid" style={{ gridTemplateColumns: '1.2fr 1fr' }}>
                   <div className="fd-profile-card">
-                    <h3>Payout details</h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      <div className="fd-form-row"><label className="fd-form-label">Contact Email</label><p style={{ fontSize: 13.5 }}>{user?.email}</p></div>
-                      <div className="fd-form-row"><label className="fd-form-label">Vetted Services</label><p style={{ fontSize: 13.5 }}>{profile?.services?.join(', ') || 'General Digital Specialist'}</p></div>
-                      {profile?.portfolioLink && (
-                        <div className="fd-form-row"><label className="fd-form-label">Portfolio URL</label><p><a href={profile.portfolioLink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontSize: 13 }}>{profile.portfolioLink} ↗</a></p></div>
-                      )}
+                    <h3>Specialist Profile &amp; Vetted Expertise</h3>
+                    <form onSubmit={handleSaveFullProfile}>
                       <div className="fd-form-row">
-                        <label className="fd-form-label">Active Payout Info</label>
-                        <p style={{ fontSize: 13.5, fontWeight: 600 }}>
-                          {profile?.bankDetails?.upiId
-                            ? `UPI ID: ${profile.bankDetails.upiId}`
-                            : profile?.bankDetails?.accountNumber
-                            ? `Bank Account: ****${profile.bankDetails.accountNumber.slice(-4)}`
-                            : '⚠️ Bank payout details missing'}
-                        </p>
+                        <label className="fd-form-label">Full Legal Name</label>
+                        <input
+                          className="fd-form-input"
+                          type="text"
+                          required
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                        />
                       </div>
-                      <button className="fd-btn-secondary" style={{ marginTop: 8 }} onClick={() => setEditingProfile(true)}>⚙️ Update Payout &amp; Bank Settings</button>
+                      <div className="fd-form-row">
+                        <label className="fd-form-label">Phone Number / WhatsApp</label>
+                        <input
+                          className="fd-form-input"
+                          type="tel"
+                          placeholder="+91 9876543210"
+                          value={editPhone}
+                          onChange={e => setEditPhone(e.target.value)}
+                        />
+                      </div>
+                      <div className="fd-form-row">
+                        <label className="fd-form-label">Portfolio URL (GitHub, Behance, Dribbble)</label>
+                        <input
+                          className="fd-form-input"
+                          type="url"
+                          placeholder="https://behance.net/yourprofile"
+                          value={bankForm.portfolioLink}
+                          onChange={e => setBankForm({ ...bankForm, portfolioLink: e.target.value })}
+                        />
+                      </div>
+
+                      {/* Vetted Services Selection (Max 4) */}
+                      <div className="fd-form-row" style={{ marginTop: 14 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                          <label className="fd-form-label" style={{ marginBottom: 0 }}>Vetted Services Offered</label>
+                          <span style={{
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: selectedServices.length === 4 ? '#f59e0b' : '#34d399',
+                            background: '#131722',
+                            padding: '2px 8px',
+                            borderRadius: 4,
+                            border: '1px solid #1e293b'
+                          }}>
+                            Selected: {selectedServices.length}/4 (Max 4)
+                          </span>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 6 }}>
+                          {ALL_SERVICES.map(srv => {
+                            const isChecked = selectedServices.includes(srv);
+                            const isDisabled = !isChecked && selectedServices.length >= 4;
+                            return (
+                              <label
+                                key={srv}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  padding: '8px 10px',
+                                  borderRadius: 6,
+                                  background: isChecked ? 'rgba(99, 102, 241, 0.15)' : '#131722',
+                                  border: `1px solid ${isChecked ? '#6366f1' : '#1e293b'}`,
+                                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                                  opacity: isDisabled ? 0.4 : 1,
+                                  fontSize: 12,
+                                  color: '#ffffff'
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  disabled={isDisabled}
+                                  onChange={() => handleToggleService(srv)}
+                                />
+                                <span>{srv}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Bank & UPI Details */}
+                      <h4 style={{ margin: '20px 0 10px 0', color: '#a5b4fc', fontSize: 13, textTransform: 'uppercase', letterSpacing: 1 }}>Bank Payout Credentials</h4>
+                      <div className="fd-form-row">
+                        <label className="fd-form-label">UPI ID (Fast Payout)</label>
+                        <input
+                          className="fd-form-input"
+                          type="text"
+                          placeholder="username@upi"
+                          value={bankForm.upiId}
+                          onChange={e => setBankForm({ ...bankForm, upiId: e.target.value })}
+                        />
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div className="fd-form-row">
+                          <label className="fd-form-label">Account Holder Name</label>
+                          <input
+                            className="fd-form-input"
+                            type="text"
+                            value={bankForm.accountName}
+                            onChange={e => setBankForm({ ...bankForm, accountName: e.target.value })}
+                          />
+                        </div>
+                        <div className="fd-form-row">
+                          <label className="fd-form-label">Bank Name</label>
+                          <input
+                            className="fd-form-input"
+                            type="text"
+                            placeholder="e.g. HDFC Bank"
+                            value={bankForm.bankName}
+                            onChange={e => setBankForm({ ...bankForm, bankName: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div className="fd-form-row">
+                          <label className="fd-form-label">Bank Account Number</label>
+                          <input
+                            className="fd-form-input"
+                            type="text"
+                            value={bankForm.accountNumber}
+                            onChange={e => setBankForm({ ...bankForm, accountNumber: e.target.value })}
+                          />
+                        </div>
+                        <div className="fd-form-row">
+                          <label className="fd-form-label">Bank IFSC Code</label>
+                          <input
+                            className="fd-form-input"
+                            type="text"
+                            placeholder="HDFC0001234"
+                            value={bankForm.ifscCode}
+                            onChange={e => setBankForm({ ...bankForm, ifscCode: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="fd-btn-primary"
+                        style={{ width: '100%', marginTop: 14, justifyContent: 'center' }}
+                        disabled={profileSaving}
+                      >
+                        {profileSaving ? 'Saving Changes… ⏳' : '💾 Save Profile &amp; Services Updates'}
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="fd-profile-card">
+                    <h3>Contact Email &amp; OTP Security</h3>
+                    <div style={{ background: '#131722', border: '1px solid #1e293b', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', marginBottom: 4 }}>Registered Specialist Email</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#ffffff', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>{profile?.email || user?.email}</span>
+                        <span style={{ background: '#064e3b', color: '#34d399', fontSize: 10.5, padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>✓ Verified</span>
+                      </div>
                     </div>
+                    <p style={{ fontSize: 12.5, color: '#94a3b8', lineHeight: 1.5, marginBottom: 16 }}>
+                      Changing your specialist account email requires receiving and confirming a 6-digit OTP sent to the new email address for payout security.
+                    </p>
+                    <button
+                      type="button"
+                      className="fd-btn-secondary"
+                      style={{ width: '100%', padding: '10px 16px', fontWeight: 600, border: '1px solid #6366f1', color: '#a5b4fc', cursor: 'pointer' }}
+                      onClick={() => {
+                        setEmailChangeModalOpen(true);
+                        setNewEmailInput('');
+                        setEmailOtpInput('');
+                        setEmailOtpSent(false);
+                      }}
+                    >
+                      🔐 Change Email Address (with OTP)
+                    </button>
                   </div>
                 </div>
               </>
@@ -626,12 +1041,58 @@ export default function FreelancerDashboard() {
         </div>
       </div>
 
-      {/* DELIVER ASSET MODAL */}
+      {/* 50% MIDPOINT DELIVERABLE MODAL */}
+      {midpointModalTask && (
+        <div className="fd-modal-overlay" onClick={() => setMidpointModalTask(null)}>
+          <div className="fd-modal" onClick={e => e.stopPropagation()}>
+            <div className="fd-modal-header">
+              <h2>📤 Upload 50% Midpoint Deliverables — #{midpointModalTask.id}</h2>
+              <button className="fd-modal-close" onClick={() => setMidpointModalTask(null)}>×</button>
+            </div>
+            <div className="fd-modal-body">
+              <p style={{ fontSize: 12.5, color: '#94a3b8', marginBottom: 14 }}>
+                Upload your 50% progress deliverable (draft designs, wireframes, cuts, initial prototype) for client review. Once approved, the client pays Milestone 2 (25%).
+              </p>
+              <form id="midpointForm" onSubmit={handleSubmitMidpoint}>
+                <div className="fd-form-row">
+                  <label className="fd-form-label">50% Deliverable Folder (Google Drive / Dropbox)</label>
+                  <input
+                    className="fd-form-input"
+                    type="url"
+                    required
+                    placeholder="https://drive.google.com/drive/folders/..."
+                    value={midpointLink}
+                    onChange={e => setMidpointLink(e.target.value)}
+                  />
+                </div>
+                <div className="fd-form-row">
+                  <label className="fd-form-label">Progress Summary &amp; Notes for Client</label>
+                  <textarea
+                    className="fd-form-input"
+                    rows={3}
+                    placeholder="Describe what has been completed so far and next steps for the final version..."
+                    value={midpointNotes}
+                    onChange={e => setMidpointNotes(e.target.value)}
+                  />
+                </div>
+              </form>
+            </div>
+            <div className="fd-modal-footer">
+              <button className="fd-btn-secondary" onClick={() => setMidpointModalTask(null)}>Cancel</button>
+              <button className="fd-btn-primary" form="midpointForm" type="submit" disabled={midpointSubmitting}>
+                {midpointSubmitting ? 'Submitting… ⏳' : '✓ Submit 50% Midpoint for Review'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELIVER 100% FINAL ASSET MODAL */}
       {submittingTask && (
         <div className="fd-modal-overlay" onClick={() => setSubmittingTask(null)}>
           <div className="fd-modal" onClick={e => e.stopPropagation()}>
             <div className="fd-modal-header">
-              <h2>📤 Deliver Completed Assets — #{submittingTask.id}</h2>
+              <h2>🚀 Deliver 100% Final Assets — #{submittingTask.id}</h2>
               <button className="fd-modal-close" onClick={() => setSubmittingTask(null)}>×</button>
             </div>
             <div className="fd-modal-body">
@@ -639,13 +1100,6 @@ export default function FreelancerDashboard() {
                 <div style={{ background: '#131722', border: '1px solid #1e293b', padding: 12, borderRadius: 6, marginBottom: 14, fontSize: 12.5, color: '#cbd5e1' }}>
                   <div style={{ color: '#94a3b8', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', marginBottom: 4 }}>Client Brief Reference</div>
                   "{submittingTask.description}"
-                </div>
-              )}
-              {submittingTask.submissionLink && (
-                <div style={{ marginBottom: 16 }}>
-                  <a href={submittingTask.submissionLink} target="_blank" rel="noreferrer" style={{ color: '#818cf8', fontSize: 12.5, fontWeight: 600, textDecoration: 'underline' }}>
-                    📁 Open Client Raw Assets Folder (Google Drive / Dropbox) ↗
-                  </a>
                 </div>
               )}
               <form id="deliverForm" onSubmit={handleDeliverTask}>
@@ -658,7 +1112,84 @@ export default function FreelancerDashboard() {
             </div>
             <div className="fd-modal-footer">
               <button className="fd-btn-secondary" onClick={() => setSubmittingTask(null)}>Cancel</button>
-              <button className="fd-btn-primary" form="deliverForm" type="submit">Deliver Work</button>
+              <button className="fd-btn-primary" form="deliverForm" type="submit">Deliver Final Work</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EMAIL CHANGE OTP MODAL */}
+      {emailChangeModalOpen && (
+        <div className="fd-modal-overlay" onClick={() => setEmailChangeModalOpen(false)}>
+          <div className="fd-modal" onClick={e => e.stopPropagation()}>
+            <div className="fd-modal-header">
+              <h2>🔐 Update Account Email</h2>
+              <button className="fd-modal-close" onClick={() => setEmailChangeModalOpen(false)}>×</button>
+            </div>
+            <div className="fd-modal-body">
+              {!emailOtpSent ? (
+                <div>
+                  <p style={{ fontSize: 13, color: '#94a3b8', marginBottom: 14 }}>
+                    Enter your new email address. We will immediately dispatch a 6-digit security OTP code to verify ownership.
+                  </p>
+                  <div className="fd-form-row">
+                    <label className="fd-form-label">New Email Address</label>
+                    <input
+                      className="fd-form-input"
+                      type="email"
+                      required
+                      placeholder="newemail@example.com"
+                      value={newEmailInput}
+                      onChange={e => setNewEmailInput(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="fd-btn-primary"
+                    style={{ width: '100%', marginTop: 8 }}
+                    disabled={profileSaving}
+                    onClick={handleRequestEmailChange}
+                  >
+                    {profileSaving ? 'Sending OTP… ⏳' : 'Send 6-Digit Verification Code →'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ background: 'rgba(99, 102, 241, 0.15)', color: '#a5b4fc', border: '1px solid #6366f1', padding: '10px 14px', borderRadius: 8, fontSize: 12.5, marginBottom: 16 }}>
+                    📧 We sent a 6-digit code to <b>{newEmailInput}</b>. Check your inbox and spam folder.
+                  </div>
+                  <div className="fd-form-row">
+                    <label className="fd-form-label">Enter 6-Digit OTP Code</label>
+                    <input
+                      className="fd-form-input"
+                      type="text"
+                      maxLength={6}
+                      placeholder="123456"
+                      style={{ fontSize: 20, letterSpacing: 6, textAlign: 'center', fontWeight: 'bold' }}
+                      value={emailOtpInput}
+                      onChange={e => setEmailOtpInput(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="fd-btn-primary"
+                    style={{ width: '100%', marginTop: 8 }}
+                    disabled={profileSaving}
+                    onClick={handleVerifyEmailChange}
+                  >
+                    {profileSaving ? 'Verifying… ⏳' : '✓ Confirm & Update Email Address'}
+                  </button>
+                  <div style={{ textAlign: 'center', marginTop: 12 }}>
+                    <button
+                      type="button"
+                      style={{ background: 'none', border: 'none', color: '#818cf8', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
+                      onClick={() => setEmailOtpSent(false)}
+                    >
+                      ← Change entered email
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -697,31 +1228,6 @@ export default function FreelancerDashboard() {
                   <button type="submit" className="fd-chat-send">Send</button>
                 </div>
               </form>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* BANK SETTINGS EDIT MODAL */}
-      {editingProfile && (
-        <div className="fd-modal-overlay" onClick={() => setEditingProfile(false)}>
-          <div className="fd-modal" onClick={e => e.stopPropagation()}>
-            <div className="fd-modal-header">
-              <h2>⚙️ Payout &amp; Bank Settings</h2>
-              <button className="fd-modal-close" onClick={() => setEditingProfile(false)}>×</button>
-            </div>
-            <div className="fd-modal-body">
-              <form id="profileForm" onSubmit={handleSaveBankDetails}>
-                <div className="fd-form-row"><label className="fd-form-label">Portfolio Link</label><input className="fd-form-input" type="url" value={bankForm.portfolioLink} onChange={e => setBankForm({ ...bankForm, portfolioLink: e.target.value })} /></div>
-                <div className="fd-form-row"><label className="fd-form-label">UPI ID (Fast Payout)</label><input className="fd-form-input" type="text" placeholder="name@upi" value={bankForm.upiId} onChange={e => setBankForm({ ...bankForm, upiId: e.target.value })} /></div>
-                <div className="fd-form-row"><label className="fd-form-label">Account Holder Name</label><input className="fd-form-input" type="text" value={bankForm.accountName} onChange={e => setBankForm({ ...bankForm, accountName: e.target.value })} /></div>
-                <div className="fd-form-row"><label className="fd-form-label">Bank Account Number</label><input className="fd-form-input" type="text" value={bankForm.accountNumber} onChange={e => setBankForm({ ...bankForm, accountNumber: e.target.value })} /></div>
-                <div className="fd-form-row"><label className="fd-form-label">Bank IFSC Code</label><input className="fd-form-input" type="text" value={bankForm.ifscCode} onChange={e => setBankForm({ ...bankForm, ifscCode: e.target.value })} /></div>
-              </form>
-            </div>
-            <div className="fd-modal-footer">
-              <button className="fd-btn-secondary" onClick={() => setEditingProfile(false)}>Cancel</button>
-              <button className="fd-btn-primary" form="profileForm" type="submit">Save Settings</button>
             </div>
           </div>
         </div>

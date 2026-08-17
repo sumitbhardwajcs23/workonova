@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { getUser, getToken, logout } from '../utils/auth.js';
 import WelcomePopup from '../components/WelcomePopup.tsx';
+import { downloadClientInvoicePDF } from '../utils/pdfInvoice.js';
 import { API_BASE } from '../config.js';
 import './ClientDashboard.css';
 
@@ -11,9 +12,18 @@ interface Order {
   tier: string;
   price: number;
   status: string;
+  milestoneStage?: number;
+  amountPaid?: number;
   description: string;
   submissionLink: string;
-  qaApprovedLink: string;
+  midpointSubmissionLink?: string;
+  midpointSubmissionNotes?: string;
+  midpointApprovedAt?: string;
+  freelancerSubmissionLink?: string;
+  qaApprovedLink?: string;
+  payoutStatus?: string;
+  paymentId?: string;
+  razorpayOrderId?: string;
   createdAt: string;
   adminRevisionComments?: string;
 }
@@ -34,6 +44,15 @@ interface Project {
   category: 'web' | 'design' | 'video' | 'ai' | 'content';
   freelancer: string;
   status: 'In Progress' | 'In Review' | 'Delivered' | 'Cancelled' | 'Submitted' | 'Client Approved';
+  rawStatus?: string;
+  milestoneStage?: number;
+  amountPaid?: number;
+  midpointSubmissionLink?: string;
+  midpointSubmissionNotes?: string;
+  midpointApprovedAt?: string;
+  tier?: string;
+  paymentId?: string;
+  razorpayOrderId?: string;
   placedDate: string;
   estDelivery: string;
   amount: number;
@@ -196,17 +215,25 @@ function statusClass(status: string) {
 // PROJECT CARD COMPONENT
 // ══════════════════════════════════════════════════════════════
 function ProjectCard({
-  project, onOpenRevision, onOpenApprove, onOpenAddon, onOpenThread, triggerToast
+  project, onOpenRevision, onOpenApprove, onOpenAddon, onOpenThread, onDownloadInvoice, triggerToast
 }: {
   project: Project;
   onOpenRevision: () => void;
   onOpenApprove: () => void;
   onOpenAddon: () => void;
   onOpenThread: () => void;
+  onDownloadInvoice: () => void;
   triggerToast: (msg: string) => void;
 }) {
   const stepLabels = ['Submitted', 'In Progress', 'In Review', 'Delivered'];
   const percentSla = project.slaHoursRemaining ? Math.round((project.slaHoursRemaining / 72) * 100) : 0;
+
+  // Milestone status computations
+  const isM1Paid = project.rawStatus !== 'pending_payment';
+  const isM2Ready = project.rawStatus === 'midpoint_submitted';
+  const isM2Paid = ['midpoint_approved', 'paid_75', 'submitted', 'qa_approved', 'client_approved', 'completed', 'delivered'].includes(project.rawStatus || '') || (project.milestoneStage || 1) >= 2;
+  const isM3Ready = ['submitted', 'qa_approved'].includes(project.rawStatus || '');
+  const isM3Paid = ['client_approved', 'completed', 'delivered'].includes(project.rawStatus || '') || (project.milestoneStage || 1) >= 3;
 
   return (
     <article className={`cd-project-card cat-${project.category}`}>
@@ -249,9 +276,121 @@ function ProjectCard({
           })}
         </div>
 
+        {/* ════ 3-STAGE MILESTONE ESCROW ROADMAP ════ */}
+        <div style={{
+          background: '#0f172a',
+          border: '1px solid #334155',
+          borderRadius: 10,
+          padding: '14px 16px',
+          marginTop: 16,
+          color: '#ffffff'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: 0.5, color: '#a5b4fc', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: 6 }}>
+              🛡️ 3-Stage Escrow Protection (50% → 25% → 25%)
+            </span>
+            <span style={{ fontSize: 11.5, background: 'rgba(99, 102, 241, 0.2)', border: '1px solid #6366f1', padding: '2px 8px', borderRadius: 4, color: '#c7d2fe', fontWeight: 600 }}>
+              Order Value: ₹{project.amount.toLocaleString('en-IN')}
+            </span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+            {/* Stage 1: 50% Kickoff */}
+            <div style={{
+              background: isM1Paid ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+              border: `1px solid ${isM1Paid ? '#10b981' : '#f59e0b'}`,
+              borderRadius: 8,
+              padding: 10,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: isM1Paid ? '#34d399' : '#fbbf24' }}>
+                {isM1Paid ? '✓ Stage 1 (50% Paid)' : '⏳ Stage 1 (50% Due)'}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 800, marginTop: 2, color: '#ffffff' }}>
+                ₹{Math.round(project.amount * 0.5).toLocaleString('en-IN')}
+              </div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                {isM1Paid ? 'Kickoff Secured · Specialist Assigned' : 'Pay 50% to start production'}
+              </div>
+            </div>
+
+            {/* Stage 2: 50% Midpoint Review & 25% Payment */}
+            <div style={{
+              background: isM2Paid ? 'rgba(16, 185, 129, 0.12)' : (isM2Ready ? 'rgba(99, 102, 241, 0.25)' : 'rgba(255, 255, 255, 0.05)'),
+              border: `1px solid ${isM2Paid ? '#10b981' : (isM2Ready ? '#818cf8' : '#334155')}`,
+              borderRadius: 8,
+              padding: 10,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: isM2Paid ? '#34d399' : (isM2Ready ? '#a5b4fc' : '#94a3b8') }}>
+                {isM2Paid ? '✓ Stage 2 (25% Paid)' : (isM2Ready ? '🔔 50% Work Ready for Review!' : '○ Stage 2 (25% Midpoint)')}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 800, marginTop: 2, color: '#ffffff' }}>
+                ₹{Math.round(project.amount * 0.25).toLocaleString('en-IN')}
+              </div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                {isM2Paid ? 'Midpoint Approved & Paid' : (isM2Ready ? 'Review Draft & Pay 25%' : 'After 50% Work Uploaded')}
+              </div>
+            </div>
+
+            {/* Stage 3: 100% Final Delivery & 25% Balance */}
+            <div style={{
+              background: isM3Paid ? 'rgba(16, 185, 129, 0.12)' : (isM3Ready ? 'rgba(16, 185, 129, 0.25)' : 'rgba(255, 255, 255, 0.05)'),
+              border: `1px solid ${isM3Paid ? '#10b981' : (isM3Ready ? '#34d399' : '#334155')}`,
+              borderRadius: 8,
+              padding: 10,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: isM3Paid ? '#34d399' : (isM3Ready ? '#34d399' : '#94a3b8') }}>
+                {isM3Paid ? '✓ Stage 3 (100% Paid)' : (isM3Ready ? '🚀 Final Deliverables Ready!' : '○ Stage 3 (25% Balance)')}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 800, marginTop: 2, color: '#ffffff' }}>
+                ₹{Math.round(project.amount * 0.25).toLocaleString('en-IN')}
+              </div>
+              <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>
+                {isM3Paid ? 'Fully Settled & Delivered' : (isM3Ready ? 'Review Finals & Pay 25%' : 'On 100% Delivery')}
+              </div>
+            </div>
+          </div>
+
+          {/* Actionable Stage Alert Buttons */}
+          {project.rawStatus === 'midpoint_submitted' && (
+            <div style={{ marginTop: 14, background: 'rgba(99, 102, 241, 0.2)', border: '1px solid #6366f1', borderRadius: 8, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <b style={{ fontSize: 13, color: '#ffffff' }}>🔔 50% Midpoint Deliverable Uploaded by Specialist!</b>
+                <p style={{ margin: '3px 0 0 0', fontSize: 12, color: '#c7d2fe' }}>
+                  Preview intermediate drafts/prototype. Approving unlocks Milestone 2 payment (25% = ₹{Math.round(project.amount * 0.25).toLocaleString('en-IN')}) so your specialist can finalize the rest.
+                </p>
+              </div>
+              <button
+                className="cd-btn-primary"
+                style={{ padding: '8px 16px', fontSize: 12.5, fontWeight: 700, background: '#6366f1', borderColor: '#4f46e5' }}
+                onClick={onOpenApprove}
+              >
+                🔍 Review 50% Midpoint &amp; Pay 25% →
+              </button>
+            </div>
+          )}
+
+          {['submitted', 'qa_approved'].includes(project.rawStatus || '') && (
+            <div style={{ marginTop: 14, background: 'rgba(16, 185, 129, 0.2)', border: '1px solid #10b981', borderRadius: 8, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <b style={{ fontSize: 13, color: '#ffffff' }}>🚀 100% Final Deliverables Ready for Your Review!</b>
+                <p style={{ margin: '3px 0 0 0', fontSize: 12, color: '#a7f3d0' }}>
+                  Review completed files. Approving will finalize your order and authorize the remaining 25% balance payment.
+                </p>
+              </div>
+              <button
+                className="cd-btn-primary"
+                style={{ padding: '8px 16px', fontSize: 12.5, fontWeight: 700, background: '#10b981', borderColor: '#059669' }}
+                onClick={onOpenApprove}
+              >
+                ⭐ Review 100% Final Work &amp; Pay 25% →
+              </button>
+            </div>
+          )}
+        </div>
+
         {/* SLA Countdown */}
         {project.status === 'In Review' && project.slaHoursRemaining !== undefined && (
-          <div className="cd-sla-bar">
+          <div className="cd-sla-bar" style={{ marginTop: 14 }}>
             <div className="cd-sla-bar-header">
               <span>⏰ Review SLA (Auto-Approves in {project.slaHoursRemaining} Hours)</span>
               <span className="cd-sla-countdown">{String(project.slaHoursRemaining).padStart(2, '0')}:00:00</span>
@@ -317,14 +456,14 @@ function ProjectCard({
       </div>
 
       {/* Action Row */}
-      <div className="cd-card-actions">
+      <div className="cd-card-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
         {project.status === 'In Review' && (
           <>
             <button className="cd-action-btn" onClick={onOpenRevision}>
               🔄 Request Revision <span style={{ opacity: 0.7 }}>({project.revisionsLeft} left)</span>
             </button>
             <button className="cd-action-btn primary-action" onClick={onOpenApprove}>
-              ✅ Approve &amp; Finalize
+              {project.rawStatus === 'midpoint_submitted' ? '✅ Review 50% Midpoint & Pay 25%' : '✅ Approve Final Deliverables'}
             </button>
           </>
         )}
@@ -334,7 +473,16 @@ function ProjectCard({
           </button>
         )}
         <button className="cd-action-btn" onClick={onOpenThread}>
-          💬 Project Discussion Thread ({project.discussion.length})
+          💬 Discussion ({project.discussion.length})
+        </button>
+
+        {/* 📄 Direct PDF Tax Invoice Download on EVERY Project Card */}
+        <button
+          className="cd-action-btn"
+          style={{ background: '#1e293b', color: '#ffffff', border: '1px solid #475569', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          onClick={onDownloadInvoice}
+        >
+          📄 Download GST Tax Invoice (PDF)
         </button>
       </div>
     </article>
@@ -383,7 +531,6 @@ export default function ClientDashboard() {
   const [supportOrderId, setSupportOrderId] = useState('');
   const [supportMessage, setSupportMessage] = useState('');
 
-  // ── MODAL STATES ──────────────────────────────────────────────
   const [activeProjectForModal, setActiveProjectForModal] = useState<Project | null>(null);
   const [newProjectModalOpen, setNewProjectModalOpen] = useState(false);
   const [revisionModalOpen, setRevisionModalOpen] = useState(false);
@@ -392,6 +539,11 @@ export default function ClientDashboard() {
   const [newBrandModalOpen, setNewBrandModalOpen] = useState(false);
   const [approveModalOpen, setApproveModalOpen] = useState(false);
   const [billingModalOpen, setBillingModalOpen] = useState(false);
+  const [feedbackModalOpen, setFeedbackModalOpen] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackRole, setFeedbackRole] = useState('');
+  const [feedbackQuote, setFeedbackQuote] = useState('');
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
 
   // Modal fields
   const [newProjCategory, setNewProjCategory] = useState(serviceCategories[0]);
@@ -426,6 +578,16 @@ export default function ClientDashboard() {
 
   const [testimonialQuote, setTestimonialQuote] = useState('');
   const [testimonialStars, setTestimonialStars] = useState(5);
+
+  // ── PROFILE & EMAIL CHANGE OTP STATE ──────────────────────────
+  const [clientProfile, setClientProfile] = useState<{ name: string; email: string; phone?: string } | null>(null);
+  const [editName, setEditName] = useState(user?.name || '');
+  const [editPhone, setEditPhone] = useState((user as any)?.phone || '');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [emailChangeModalOpen, setEmailChangeModalOpen] = useState(false);
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [emailOtpInput, setEmailOtpInput] = useState('');
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
 
   const toastTimerRef = useRef<any>(null);
 
@@ -521,51 +683,112 @@ export default function ClientDashboard() {
 
   useEffect(() => { chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [chatMessages]);
 
-  // ── MERGE ORDERS + TEMPLATES ──────────────────────────────────
-  const mergeOrdersAndTemplates = (orders: Order[]) => {
-    const mockProjects: Project[] = [
-      {
-        id: 'WN-2026-105', title: 'Landing Page + Razorpay Integration', category: 'web',
-        freelancer: 'Sumit Bhardwaj', status: 'In Progress', placedDate: 'Aug 14, 2026', estDelivery: 'Aug 18, 2026',
-        amount: 34999, currentStep: 1,
-        stepDates: ['Aug 14', 'Aug 14 · Current', 'Est. Aug 17', 'Aug 18'],
-        assets: [{ name: 'Figma UI Link', url: 'https://figma.com' }, { name: 'API_Specs.pdf', url: '#' }, { name: 'Drive Assets ↗', url: 'https://drive.google.com' }],
-        updates: [
-          { date: 'Aug 15', text: 'Database schema completed, integrating Razorpay payment webhook' },
-          { date: 'Aug 14', text: 'Client brief analyzed, initial project scaffold setup' }
-        ],
-        deliverables: { title: 'Staging preview and repository ready soon.', links: [] },
-        revisionsLeft: 2, discussion: [{ sender: 'Sumit Bhardwaj', text: 'Brief analyzed, scaffold is ready!', time: 'Aug 14 · 10:00 AM', type: 'team' }]
-      },
-      {
-        id: 'WN-2026-98', title: '10 Social Ad Creatives & Display Banners', category: 'design',
-        freelancer: 'Priya Mehta', status: 'In Review', placedDate: 'Aug 10, 2026', estDelivery: 'Aug 16, 2026 (Today)',
-        amount: 12000, currentStep: 2,
-        stepDates: ['Aug 10', 'Aug 12', 'Aug 16 · Under Review', 'Aug 17'],
-        assets: [{ name: 'Figma Workspace', url: 'https://figma.com' }, { name: 'Ad_Copy_Brief.docx', url: '#' }],
-        updates: [
-          { date: 'Aug 16', text: 'Delivered initial drafts for review' },
-          { date: 'Aug 13', text: 'Approved custom graphics assets' }
-        ],
-        deliverables: {
-          title: 'High-Res PNGs & Figma Files Ready for Inspection',
-          links: [{ name: '🖼️ Download High-Res PNGs', url: 'https://drive.google.com' }, { name: '🎨 Open Figma Draft ↗', url: 'https://figma.com' }]
-        },
-        revisionsLeft: 1, slaHoursRemaining: 72,
-        discussion: [{ sender: 'Priya Mehta', text: 'Hi! All 10 creatives are done. Let me know if you need adjustments!', time: 'Aug 16 · 11:00 AM', type: 'team' }]
-      },
-      {
-        id: 'WN-2026-89', title: 'Short-Form Reels Post-Production Bundle', category: 'video',
-        freelancer: 'Alex Sharma', status: 'Delivered', placedDate: 'Jul 28, 2026', estDelivery: 'Aug 04, 2026',
-        amount: 9999, currentStep: 3,
-        stepDates: ['Jul 28', 'Jul 29', 'Aug 02', 'Aug 04 · Finalized'],
-        assets: [{ name: 'Footage Folder (Drive)', url: 'https://drive.google.com' }],
-        updates: [{ date: 'Aug 04', text: 'Client approved deliverables, payment released.' }],
-        deliverables: { title: 'Approved finals delivery', links: [{ name: '🎥 Download Final Reels', url: 'https://drive.google.com' }] },
-        revisionsLeft: 0, discussion: []
+  const fetchProfile = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (res.ok && data.profile) {
+        setClientProfile(data.profile);
+        setEditName(data.profile.name || user?.name || '');
+        setEditPhone(data.profile.phone || '');
       }
-    ];
+    } catch (e) {
+      console.error('Error fetching profile:', e);
+    }
+  };
 
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setProfileSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/profile`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: editName, phone: editPhone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update profile');
+      triggerToast('✅ Profile updated successfully!');
+      fetchProfile();
+      const cur = getUser();
+      if (cur) {
+        cur.name = editName;
+        (cur as any).phone = editPhone;
+        localStorage.setItem('workonova_user', JSON.stringify(cur));
+      }
+    } catch (err: any) {
+      triggerToast('❌ Error: ' + err.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleRequestEmailChange = async () => {
+    if (!newEmailInput || !newEmailInput.includes('@')) {
+      triggerToast('⚠️ Please enter a valid new email address.');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/profile/request-email-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newEmail: newEmailInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to send OTP to new email');
+      setEmailOtpSent(true);
+      triggerToast(`📧 Verification OTP sent to ${newEmailInput}`);
+    } catch (err: any) {
+      triggerToast('❌ Error: ' + err.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleVerifyEmailChange = async () => {
+    if (!emailOtpInput || emailOtpInput.trim().length !== 6) {
+      triggerToast('⚠️ Please enter the 6-digit OTP received in email.');
+      return;
+    }
+    setProfileSaving(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/profile/verify-email-change`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newEmail: newEmailInput, otp: emailOtpInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Invalid OTP');
+      if (data.token) {
+        localStorage.setItem('workonova_token', data.token);
+      }
+      const cur = getUser();
+      if (cur) {
+        cur.email = data.email || newEmailInput;
+        localStorage.setItem('workonova_user', JSON.stringify(cur));
+      }
+      triggerToast('🎉 Email address successfully updated!');
+      setEmailChangeModalOpen(false);
+      setNewEmailInput('');
+      setEmailOtpInput('');
+      setEmailOtpSent(false);
+      fetchProfile();
+    } catch (err: any) {
+      triggerToast('❌ Error: ' + err.message);
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  // ── MERGE ORDERS ──────────────────────────────────────────────
+  const mergeOrdersAndTemplates = (orders: Order[]) => {
     const mappedDbProjects: Project[] = orders.map((o) => {
       let category: 'web' | 'design' | 'video' | 'ai' | 'content' = 'web';
       const cat = o.serviceCategory.toLowerCase();
@@ -577,39 +800,49 @@ export default function ClientDashboard() {
       let status: 'Submitted' | 'In Progress' | 'In Review' | 'Delivered' | 'Cancelled' | 'Client Approved' = 'In Progress';
       let currentStep = 1;
       if (o.status === 'pending_payment') { status = 'Submitted'; currentStep = 0; }
-      else if (o.status === 'paid' || o.status === 'assigned') { status = 'In Progress'; currentStep = 1; }
-      else if (o.status === 'submitted') { status = 'In Progress'; currentStep = 2; }
+      else if (o.status === 'paid' || o.status === 'paid_50' || o.status === 'assigned') { status = 'In Progress'; currentStep = 1; }
+      else if (o.status === 'midpoint_submitted' || o.status === 'midpoint_approved') { status = 'In Review'; currentStep = 2; }
+      else if (o.status === 'paid_75' || o.status === 'submitted') { status = 'In Progress'; currentStep = 2; }
       else if (o.status === 'qa_approved') { status = 'In Review'; currentStep = 2; }
       else if (o.status === 'revision_requested') { status = 'In Progress'; currentStep = 1; }
       else if (o.status === 'client_approved') { status = 'Client Approved'; currentStep = 3; }
-      else if (o.status === 'delivered') { status = 'Delivered'; currentStep = 3; }
+      else if (o.status === 'completed' || o.status === 'delivered') { status = 'Delivered'; currentStep = 3; }
       else if (o.status === 'cancelled') { status = 'Cancelled'; currentStep = 0; }
 
       const createdDate = new Date(o.createdAt || Date.now());
       const estDate = new Date(createdDate.getTime() + 4 * 24 * 60 * 60 * 1000);
       const formattedCreated = createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
       const formattedEst = estDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
-      const deliverableLinks = o.qaApprovedLink ? [{ name: '🖼️ Download QA Assets', url: o.qaApprovedLink }] : [];
+      const deliverableLinks = o.qaApprovedLink ? [{ name: '🖼️ Download Final QA Assets', url: o.qaApprovedLink }] : (o.midpointSubmissionLink ? [{ name: '📁 Preview 50% Midpoint Work', url: o.midpointSubmissionLink }] : []);
       const updates = [{ date: createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: 'Intake brief successfully submitted.' }];
       if (o.adminRevisionComments) updates.unshift({ date: new Date().toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: `Revision requested: "${o.adminRevisionComments}"` });
+      if (o.midpointSubmissionLink) updates.unshift({ date: new Date().toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: `Specialist uploaded 50% Midpoint Deliverable.` });
 
       return {
-        id: `db-${o.id}`, dbId: o.id, title: `${o.serviceCategory} - Intake Setup`, category,
+        id: `db-${o.id}`, dbId: o.id, title: `${o.serviceCategory} - Order #${o.id}`, category,
         freelancer: o.status === 'pending_payment' ? 'Not Assigned' : 'Workonova Specialist',
-        status, placedDate: formattedCreated, estDelivery: formattedEst, amount: o.price, currentStep,
+        status, rawStatus: o.status,
+        milestoneStage: o.milestoneStage || 1,
+        amountPaid: o.amountPaid || 0,
+        midpointSubmissionLink: o.midpointSubmissionLink,
+        midpointSubmissionNotes: o.midpointSubmissionNotes,
+        midpointApprovedAt: o.midpointApprovedAt,
+        tier: o.tier,
+        paymentId: o.paymentId,
+        razorpayOrderId: o.razorpayOrderId,
+        placedDate: formattedCreated, estDelivery: formattedEst, amount: o.price, currentStep,
         stepDates: [createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), o.status !== 'pending_payment' ? 'In Progress' : 'Pending Intake', (o.status === 'submitted' || o.status === 'qa_approved' || o.status === 'delivered') ? 'Under Review' : 'Est. ' + formattedEst, o.status === 'delivered' ? 'Finalized' : 'Handoff'],
         assets: [{ name: 'Project Brief Link', url: o.submissionLink || '#' }],
         updates,
-        deliverables: { title: o.qaApprovedLink ? 'QA approved finals are ready' : 'Final assets in QA validation pipeline', links: deliverableLinks },
+        deliverables: { title: o.qaApprovedLink ? 'QA approved finals are ready' : (o.midpointSubmissionLink ? '50% Midpoint Deliverables Ready' : 'Assets in Progress Pipeline'), links: deliverableLinks },
         revisionsLeft: 2, slaHoursRemaining: status === 'In Review' ? 72 : undefined, discussion: []
       };
     });
 
-    const combined = [...mappedDbProjects, ...mockProjects.filter(mock => !orders.some(o => o.id === parseInt(mock.id.replace('db-', ''))))];
-    setAllProjects(combined);
+    setAllProjects(mappedDbProjects);
   };
 
-  // ── ORDER CREATION ────────────────────────────────────────────
+  // ── ORDER CREATION (MILESTONE 1: 50% UPFRONT) ────────────────
   const handleTierChange = (tierTag: string) => {
     setNewProjTier(tierTag);
     const activeTiers = getActiveCategoryTiers(newProjCategory, dbBundles);
@@ -625,7 +858,7 @@ export default function ClientDashboard() {
     
     setPaymentProcessing(true);
     try {
-      // 1. Initialize Razorpay order on backend
+      // 1. Initialize Razorpay order on backend (Milestone 1 = 50% upfront)
       const rzpRes = await fetch(`${API_BASE}/api/client/razorpay/create-order`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -633,7 +866,8 @@ export default function ClientDashboard() {
           serviceCategory: newProjCategory,
           tier: newProjTier,
           price: newProjPrice,
-          description: newProjBrief
+          description: newProjBrief,
+          milestone: 1
         })
       });
       const rzpData = await rzpRes.json();
@@ -648,13 +882,13 @@ export default function ClientDashboard() {
           amount: amount,
           currency: currency || 'INR',
           name: 'WORKONOVA',
-          description: `${newProjCategory} (${newProjTier.toUpperCase()} Tier)`,
+          description: `${newProjCategory} — Milestone 1 (50% Upfront Kickoff)`,
           image: '/assets/workonova-logo.webp',
           order_id: razorpayOrderId,
           prefill: {
             name: user?.name || '',
             email: user?.email || '',
-            contact: user?.phone || '',
+            contact: (user as any)?.phone || '',
           },
           theme: {
             color: '#6366f1'
@@ -677,6 +911,7 @@ export default function ClientDashboard() {
                   razorpay_order_id: response.razorpay_order_id,
                   razorpay_payment_id: response.razorpay_payment_id,
                   razorpay_signature: response.razorpay_signature,
+                  milestone: 1
                 })
               });
               const verifyData = await verifyRes.json();
@@ -689,13 +924,13 @@ export default function ClientDashboard() {
                 body: JSON.stringify({ description: newProjBrief, submissionLink: newProjLink })
               });
 
-              triggerToast('🎉 Payment verified & Project order placed successfully!');
+              triggerToast('🎉 Milestone 1 (50%) paid & Project order activated!');
               setNewProjBrief('');
               setNewProjLink('');
               setNewProjectModalOpen(false);
               fetchOrders();
-            } catch (verr: any) {
-              triggerToast('❌ Verification error: ' + verr.message);
+            } catch (err: any) {
+              triggerToast('❌ Verification error: ' + err.message);
             } finally {
               setPaymentProcessing(false);
             }
@@ -703,25 +938,95 @@ export default function ClientDashboard() {
         };
 
         const rzp = new (window as any).Razorpay(options);
-        rzp.on('payment.failed', function (resp: any) {
-          setPaymentProcessing(false);
-          triggerToast('❌ Payment failed: ' + (resp.error?.description || 'Transaction declined'));
-        });
         rzp.open();
       } else {
-        // Fallback if Razorpay SDK is unavailable
-        await fetch(`${API_BASE}/api/client/orders/${orderId}/submit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ description: newProjBrief, submissionLink: newProjLink })
-        });
-        triggerToast('🎉 Project order placed successfully!');
-        setNewProjBrief(''); setNewProjLink(''); setNewProjectModalOpen(false); fetchOrders();
-        setPaymentProcessing(false);
+        throw new Error('Razorpay SDK not loaded in browser.');
       }
     } catch (err: any) {
+      triggerToast('❌ Payment initialisation failed: ' + err.message);
       setPaymentProcessing(false);
-      triggerToast('❌ ' + err.message);
+    }
+  };
+
+  // ── PAY NEXT MILESTONE (MILESTONE 2: 25% or MILESTONE 3: 25%) ──
+  const handlePayMilestone = async (project: Project, milestoneNumber: number) => {
+    if (!project.dbId) return;
+    setPaymentProcessing(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/client/razorpay/create-order`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          orderId: project.dbId,
+          milestone: milestoneNumber,
+        }),
+      });
+      const rzpData = await res.json();
+      if (!res.ok) throw new Error(rzpData.error || 'Failed to initiate milestone payment');
+
+      const options = {
+        key: rzpData.keyId,
+        amount: rzpData.amount,
+        currency: rzpData.currency || 'INR',
+        name: 'WORKONOVA',
+        description: `${rzpData.milestoneTitle} — Order #${project.dbId}`,
+        image: '/assets/workonova-logo.webp',
+        order_id: rzpData.razorpayOrderId,
+        prefill: {
+          name: user?.name,
+          email: user?.email,
+          contact: (user as any)?.phone || '',
+        },
+        theme: { color: '#6366f1' },
+        handler: async (response: any) => {
+          try {
+            const verifyRes = await fetch(`${API_BASE}/api/client/razorpay/verify-payment`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+              body: JSON.stringify({
+                orderId: project.dbId,
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+                milestone: milestoneNumber,
+              }),
+            });
+            const verifyData = await verifyRes.json();
+            if (!verifyRes.ok) throw new Error(verifyData.error || 'Verification failed');
+            triggerToast(`✅ Milestone ${milestoneNumber} payment verified successfully!`);
+            fetchOrders(true);
+            setActiveProjectForModal(null);
+            setApproveModalOpen(false);
+          } catch (err: any) {
+            triggerToast('❌ Verification error: ' + err.message);
+          }
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err: any) {
+      triggerToast('❌ Payment failed: ' + err.message);
+    } finally {
+      setPaymentProcessing(false);
+    }
+  };
+
+  // ── APPROVE 50% MIDPOINT DELIVERABLE ─────────────────────────
+  const handleApproveMidpoint = async (project: Project) => {
+    if (!project.dbId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/client/orders/${project.dbId}/approve-midpoint`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to approve midpoint deliverable');
+      triggerToast('✅ 50% Midpoint approved! Launching Milestone 2 payment (25%)…');
+      fetchOrders(true);
+      handlePayMilestone(project, 2);
+    } catch (err: any) {
+      triggerToast('❌ Error: ' + err.message);
     }
   };
 
@@ -835,19 +1140,6 @@ export default function ClientDashboard() {
     }
   };
 
-  // ── TESTIMONIAL ───────────────────────────────────────────────
-  const handleTestimonialSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!testimonialQuote) return;
-    try {
-      const res = await fetch(`${API_BASE}/api/client/testimonials`, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({ quote: testimonialQuote, stars: testimonialStars }) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed');
-      triggerToast('✅ Testimonial submitted to admin approval queue!');
-      setTestimonialQuote('');
-    } catch (err: any) { triggerToast('❌ ' + err.message); }
-  };
-
   // ── SUPPORT TICKET ────────────────────────────────────────────
   const handleSupportTicketSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -902,6 +1194,42 @@ export default function ClientDashboard() {
     setApproveModalOpen(false);
     triggerToast('✅ Deliverables approved! Admin authorized to release specialist payout.');
     fetchOrders(true);
+    setFeedbackRating(5);
+    setFeedbackModalOpen(true);
+  };
+
+  const handleTestimonialSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!feedbackQuote.trim()) {
+      triggerToast('⚠️ Please write a short review comment.');
+      return;
+    }
+    setFeedbackSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/client/testimonials`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: user?.name || 'Verified Client',
+          role: feedbackRole.trim() || 'Client',
+          quote: feedbackQuote.trim(),
+          stars: feedbackRating,
+        })
+      });
+      if (res.ok) {
+        triggerToast('⭐ Thank you! Your testimonial has been submitted to admin queue.');
+        setFeedbackModalOpen(false);
+        setFeedbackQuote('');
+        setFeedbackRole('');
+      } else {
+        triggerToast('⚠️ Failed to submit testimonial.');
+      }
+    } catch (err) {
+      console.error('Testimonial submit error:', err);
+      triggerToast('⚠️ Error submitting testimonial.');
+    } finally {
+      setFeedbackSubmitting(false);
+    }
   };
 
   // ── ADD-ON ────────────────────────────────────────────────────
@@ -979,6 +1307,24 @@ export default function ClientDashboard() {
           onOpenApprove={() => { setActiveProjectForModal(p); setApproveModalOpen(true); }}
           onOpenAddon={() => { setActiveProjectForModal(p); setAddonModalOpen(true); }}
           onOpenThread={() => openProject(p)}
+          onDownloadInvoice={() => {
+            const inv = `WN-INV-2026-${String(p.dbId || p.id.replace('db-', '')).padStart(4, '0')}`;
+            downloadClientInvoicePDF({
+              orderId: p.dbId || Number(p.id.replace('db-', '')) || 101,
+              clientName: clientProfile?.name || user?.name || 'Valued Client',
+              clientEmail: clientProfile?.email || user?.email || 'client@workonova.com',
+              clientPhone: clientProfile?.phone || (user as any)?.phone || '',
+              serviceCategory: p.title?.replace(' - Intake Setup', '')?.replace(/ - Order #\d+/, '') || 'Creative & Tech Delivery',
+              tier: p.tier || 'STANDARD',
+              totalPrice: p.amount || 14999,
+              amountPaid: p.amountPaid || p.amount || 14999,
+              milestoneStage: p.milestoneStage || 1,
+              paymentId: p.paymentId || 'rzp_live_escrow_audit',
+              razorpayOrderId: p.razorpayOrderId,
+              date: p.placedDate,
+            });
+            triggerToast(`📄 Downloaded Tax Invoice ${inv}.pdf`);
+          }}
           triggerToast={triggerToast}
         />
       ))
@@ -1049,6 +1395,9 @@ export default function ClientDashboard() {
           <button className={`cd-nav-item${currentView === 'invoices' ? ' active' : ''}`} onClick={() => goView('invoices')}>
             <span className="cd-nav-icon">📄</span><span>Invoices &amp; GST Receipts</span>
           </button>
+          <button className={`cd-nav-item${currentView === 'profile' ? ' active' : ''}`} onClick={() => goView('profile')}>
+            <span className="cd-nav-icon">👤</span><span>Profile &amp; Security</span>
+          </button>
           <button className={`cd-nav-item${currentView === 'support' ? ' active' : ''}`} onClick={() => goView('support')}>
             <span className="cd-nav-icon">💬</span><span>Support &amp; Help Desk</span>
           </button>
@@ -1078,7 +1427,7 @@ export default function ClientDashboard() {
         {/* Right actions */}
         <div className="cd-header-right">
           {/* Notifications */}
-          <button className="cd-notif-btn" onClick={() => { setNotifPanelOpen(!notifPanelOpen); setProfileDropdownOpen(false); setTimeout(() => setNotifications(prev => prev.map(n => ({ ...n, unread: false }))), 1800); }} aria-label="Notifications">
+          <button className="cd-notif-btn" onClick={() => { setNotifPanelOpen(!notifPanelOpen); setProfileDropdownOpen(false); setNotifications(prev => prev.map(n => ({ ...n, unread: false }))); }} aria-label="Notifications">
             🔔
             {notifications.some(n => n.unread) && (
               <span className="cd-notif-badge">{notifications.filter(n => n.unread).length}</span>
@@ -1111,8 +1460,10 @@ export default function ClientDashboard() {
                   </div>
                 </div>
                 <hr className="cd-dd-hr" />
-                <button className="cd-dd-item" onClick={() => { setProfileDropdownOpen(false); setBillingModalOpen(true); }}>🧾 Billing &amp; GST Settings</button>
-                <button className="cd-dd-item" onClick={() => { setProfileDropdownOpen(false); triggerToast('🔔 Notification preferences updated!'); }}>🔔 Notification Preferences</button>
+                <button className="cd-dd-item" onClick={() => { setProfileDropdownOpen(false); goView('profile'); }}>👤 Edit Profile &amp; Contact</button>
+                <button className="cd-dd-item" onClick={() => { setProfileDropdownOpen(false); goView('invoices'); }}>📄 GST Invoices</button>
+                <button className="cd-dd-item" onClick={() => { setProfileDropdownOpen(false); goView('brand-vault'); }}>📁 Brand Vault</button>
+                <button className="cd-dd-item" onClick={() => { setProfileDropdownOpen(false); goView('support'); }}>💬 Help &amp; Support</button>
                 <hr className="cd-dd-hr" />
                 <button className="cd-dd-item danger" onClick={logout}>↪ Logout</button>
               </div>
@@ -1164,6 +1515,52 @@ export default function ClientDashboard() {
                     <p>Here's your full production command centre.</p>
                   </div>
                   <button className="cd-new-btn" onClick={() => setNewProjectModalOpen(true)}>+ Start New Project</button>
+                </div>
+
+                {/* 🛡️ 3-STAGE MILESTONE ESCROW EXPLAINER BANNER */}
+                <div style={{
+                  background: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)',
+                  border: '1px solid #6366f1',
+                  borderRadius: 12,
+                  padding: '20px 24px',
+                  marginBottom: 24,
+                  color: '#ffffff',
+                  boxShadow: '0 4px 20px rgba(99, 102, 241, 0.15)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 14 }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#ffffff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                        🛡️ How Workonova 3-Stage Milestone Escrow Works
+                      </h3>
+                      <p style={{ margin: '4px 0 0 0', fontSize: 13, color: '#cbd5e1' }}>
+                        Your funds are 100% protected. Payments are split into 3 safe milestone steps as work progresses:
+                      </p>
+                    </div>
+                    <span style={{ fontSize: 12, background: 'rgba(52, 211, 153, 0.2)', border: '1px solid #10b981', color: '#34d399', padding: '4px 10px', borderRadius: 20, fontWeight: 700 }}>
+                      ✓ 100% Buyer Protection Guarantee
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 14 }}>
+                    <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 8, padding: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#38bdf8', marginBottom: 4 }}>1️⃣ 50% Upfront Kickoff</div>
+                      <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>
+                        You pay 50% to start. Funds are locked in escrow while a verified specialist is assigned.
+                      </p>
+                    </div>
+                    <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 8, padding: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#a5b4fc', marginBottom: 4 }}>2️⃣ 50% Work Review $\rightarrow$ Pay 25%</div>
+                      <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>
+                        Specialist uploads 50% draft/prototype. You review &amp; approve to release the 25% second milestone.
+                      </p>
+                    </div>
+                    <div style={{ background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: 8, padding: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, color: '#34d399', marginBottom: 4 }}>3️⃣ 100% Final Delivery $\rightarrow$ Pay 25%</div>
+                      <p style={{ margin: 0, fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>
+                        Specialist delivers final files &amp; source code. You approve and pay the remaining 25% balance.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 {/* KPI Cards */}
@@ -1356,20 +1753,126 @@ export default function ClientDashboard() {
                     <thead><tr><th>Invoice #</th><th>Order</th><th>Date</th><th>Amount</th><th>GST</th><th>Download</th></tr></thead>
                     <tbody>
                       {allProjects.map((p, i) => {
-                        const inv = `INV-2026-${100 + i}`;
+                        const inv = `WN-INV-2026-${String(p.dbId || 100 + i).padStart(4, '0')}`;
                         return (
                           <tr key={p.id}>
-                            <td>{inv}</td>
+                            <td><b>{inv}</b></td>
                             <td>#{p.id.replace('db-', '')}</td>
                             <td>{p.placedDate}</td>
                             <td>₹{p.amount.toLocaleString('en-IN')}</td>
                             <td>₹{Math.round(p.amount * 0.18).toLocaleString('en-IN')}</td>
-                            <td><button className="cd-table-link" onClick={() => triggerToast(`📥 Downloading ${inv}.pdf…`)}>📄 PDF</button></td>
+                            <td>
+                              <button
+                                className="cd-table-link"
+                                style={{ background: '#4f46e5', color: '#ffffff', padding: '6px 12px', borderRadius: '6px', fontWeight: 'bold', display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
+                                onClick={() => {
+                                  downloadClientInvoicePDF({
+                                    orderId: p.dbId || Number(p.id.replace('db-', '')) || (100 + i),
+                                    clientName: clientProfile?.name || user?.name || 'Valued Client',
+                                    clientEmail: clientProfile?.email || user?.email || 'client@workonova.com',
+                                    clientPhone: clientProfile?.phone || (user as any)?.phone || '',
+                                    serviceCategory: p.title?.replace(' - Intake Setup', '')?.replace(/ - Order #\d+/, '') || 'Creative & Tech Delivery',
+                                    tier: p.tier || 'STANDARD',
+                                    totalPrice: p.amount || 14999,
+                                    amountPaid: p.amountPaid || p.amount || 14999,
+                                    milestoneStage: p.milestoneStage || 3,
+                                    paymentId: p.paymentId || 'rzp_live_escrow_audit',
+                                    razorpayOrderId: p.razorpayOrderId,
+                                    date: p.placedDate,
+                                  });
+                                  triggerToast(`📄 Downloaded Tax Invoice ${inv}.pdf`);
+                                }}
+                              >
+                                📥 Export PDF
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
+                      {allProjects.length === 0 && (
+                        <tr>
+                          <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: '#888' }}>
+                            No invoice records found. Start a project to generate tax invoices.
+                          </td>
+                        </tr>
+                      )}
                     </tbody>
                   </table>
+                </div>
+              </>
+            )}
+
+            {/* ════ PROFILE & CONTACT SETTINGS ════ */}
+            {currentView === 'profile' && (
+              <>
+                <div className="cd-view-header">
+                  <div>
+                    <h1>👤 Account Profile &amp; Contact Details</h1>
+                    <p>Manage your client contact profile, registered phone, and secure email verification.</p>
+                  </div>
+                </div>
+                <div className="cd-support-grid" style={{ gridTemplateColumns: '1.2fr 1fr' }}>
+                  <div className="cd-support-card">
+                    <h3>Contact Information</h3>
+                    <form onSubmit={handleSaveProfile}>
+                      <div className="cd-form-row">
+                        <label className="cd-form-label">Full Name / Organization Contact</label>
+                        <input
+                          className="cd-form-input"
+                          type="text"
+                          required
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                        />
+                      </div>
+                      <div className="cd-form-row">
+                        <label className="cd-form-label">Phone Number (with Country Code)</label>
+                        <input
+                          className="cd-form-input"
+                          type="tel"
+                          placeholder="+91 9876543210"
+                          value={editPhone}
+                          onChange={e => setEditPhone(e.target.value)}
+                        />
+                        <small style={{ color: '#888', fontSize: 11, marginTop: 4, display: 'block' }}>Used for critical milestone WhatsApp alerts and intake briefings.</small>
+                      </div>
+                      <button
+                        type="submit"
+                        className="cd-new-btn"
+                        disabled={profileSaving}
+                        style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}
+                      >
+                        {profileSaving ? 'Saving Changes…' : '💾 Save Profile Updates'}
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="cd-support-card">
+                    <h3>Registered Email &amp; OTP Security</h3>
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, marginBottom: 16 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Primary Verified Email</div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>{clientProfile?.email || user?.email}</span>
+                        <span style={{ background: '#dcfce7', color: '#166534', fontSize: 11, padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>✓ Verified</span>
+                      </div>
+                    </div>
+                    <p style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.5, marginBottom: 16 }}>
+                      To protect your active milestone funds and deliverables, updating your email address requires 6-digit OTP verification sent directly to the new address.
+                    </p>
+                    <button
+                      type="button"
+                      className="cd-btn-secondary"
+                      style={{ width: '100%', padding: '10px 16px', fontWeight: 600, border: '1px solid #6366f1', color: '#4f46e5', cursor: 'pointer' }}
+                      onClick={() => {
+                        setEmailChangeModalOpen(true);
+                        setNewEmailInput('');
+                        setEmailOtpInput('');
+                        setEmailOtpSent(false);
+                      }}
+                    >
+                      🔐 Change Email Address (with OTP)
+                    </button>
+                  </div>
                 </div>
               </>
             )}
@@ -1680,28 +2183,160 @@ export default function ClientDashboard() {
         </div>
       )}
 
-      {/* APPROVE MODAL */}
+      {/* APPROVE MODAL (MIDPOINT & FINAL) */}
       {approveModalOpen && activeProjectForModal && (
         <div className="cd-modal-overlay" onClick={() => setApproveModalOpen(false)}>
           <div className="cd-modal" onClick={e => e.stopPropagation()}>
             <div className="cd-modal-header">
-              <h2>✅ Approve &amp; Finalize</h2>
+              <h2>
+                {activeProjectForModal.rawStatus === 'midpoint_submitted'
+                  ? '✅ Review & Approve 50% Midpoint Deliverable'
+                  : '✅ Approve Final Deliverables & Settle Milestone'}
+              </h2>
               <button className="cd-modal-close" onClick={() => setApproveModalOpen(false)}>×</button>
             </div>
             <div className="cd-modal-body">
-              <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>Once approved, the freelancer receives payment and the project is marked Delivered. This action is <b>final</b>.</p>
-              <div className="cd-checklist">
-                {[{ s: ac1, set: setAc1, text: 'I have reviewed all delivered files' }, { s: ac2, set: setAc2, text: 'All revision requests have been incorporated' }, { s: ac3, set: setAc3, text: 'I am satisfied with the final quality' }].map(({ s, set, text }) => (
-                  <label key={text} className="cd-check-item">
-                    <input type="checkbox" checked={s} onChange={e => set(e.target.checked)} />
-                    <span style={{ fontSize: 13 }}>{text}</span>
-                  </label>
-                ))}
-              </div>
+              {activeProjectForModal.rawStatus === 'midpoint_submitted' ? (
+                <div>
+                  <p style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>
+                    Your specialist has submitted the 50% midpoint deliverables. Review the preview link below:
+                  </p>
+                  {activeProjectForModal.midpointSubmissionLink && (
+                    <div style={{ background: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', marginBottom: 4 }}>50% Deliverable Folder:</div>
+                      <a href={activeProjectForModal.midpointSubmissionLink} target="_blank" rel="noreferrer" style={{ color: '#4f46e5', fontWeight: 600, fontSize: 13, textDecoration: 'underline' }}>
+                        📁 Open Specialist 50% Deliverable (Google Drive / Dropbox) ↗
+                      </a>
+                      {activeProjectForModal.midpointSubmissionNotes && (
+                        <p style={{ margin: '8px 0 0 0', fontSize: 12, color: '#334155' }}>
+                          <b>Specialist Notes:</b> {activeProjectForModal.midpointSubmissionNotes}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                  <p style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.5, marginBottom: 14 }}>
+                    Approving the midpoint releases Milestone 2 payment (25% = <b>₹{Math.round((activeProjectForModal.amount || 14999) * 0.25).toLocaleString('en-IN')}</b>) and authorizes your specialist to build the 100% final deliverables.
+                  </p>
+                  <button
+                    type="button"
+                    className="cd-btn-primary"
+                    style={{ width: '100%', padding: '12px', fontSize: 14 }}
+                    disabled={paymentProcessing}
+                    onClick={() => handleApproveMidpoint(activeProjectForModal)}
+                  >
+                    {paymentProcessing ? 'Processing… ⏳' : `✅ Approve 50% Work & Pay Milestone 2 (25% · ₹${Math.round((activeProjectForModal.amount || 14999) * 0.25).toLocaleString('en-IN')}) 💳`}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <p style={{ fontSize: 13, color: '#888', marginBottom: 14 }}>
+                    Once approved, your project is finalized and the final 25% milestone payment is funded into admin escrow.
+                  </p>
+                  <div className="cd-checklist">
+                    {[{ s: ac1, set: setAc1, text: 'I have reviewed all delivered files' }, { s: ac2, set: setAc2, text: 'All revision requests have been incorporated' }, { s: ac3, set: setAc3, text: 'I am satisfied with the final quality' }].map(({ s, set, text }) => (
+                      <label key={text} className="cd-check-item">
+                        <input type="checkbox" checked={s} onChange={e => set(e.target.checked)} />
+                        <span style={{ fontSize: 13 }}>{text}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="cd-modal-footer">
               <button className="cd-btn-secondary" onClick={() => setApproveModalOpen(false)}>Cancel</button>
-              <button className="cd-btn-primary" disabled={!(ac1 && ac2 && ac3)} onClick={triggerPayoutFinalize} style={!(ac1 && ac2 && ac3) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}>✅ Approve &amp; Release Payment</button>
+              {activeProjectForModal.rawStatus !== 'midpoint_submitted' && (
+                <button
+                  className="cd-btn-primary"
+                  disabled={!(ac1 && ac2 && ac3)}
+                  onClick={async () => {
+                    if (activeProjectForModal.amountPaid && activeProjectForModal.amountPaid < activeProjectForModal.amount) {
+                      await handlePayMilestone(activeProjectForModal, 3);
+                    }
+                    triggerPayoutFinalize();
+                  }}
+                  style={!(ac1 && ac2 && ac3) ? { opacity: 0.5, cursor: 'not-allowed' } : {}}
+                >
+                  ✅ Approve &amp; Release Final Milestone 3
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EMAIL CHANGE OTP MODAL */}
+      {emailChangeModalOpen && (
+        <div className="cd-modal-overlay" onClick={() => setEmailChangeModalOpen(false)}>
+          <div className="cd-modal" onClick={e => e.stopPropagation()}>
+            <div className="cd-modal-header">
+              <h2>🔐 Update Account Email</h2>
+              <button className="cd-modal-close" onClick={() => setEmailChangeModalOpen(false)}>×</button>
+            </div>
+            <div className="cd-modal-body">
+              {!emailOtpSent ? (
+                <div>
+                  <p style={{ fontSize: 13, color: '#64748b', marginBottom: 14 }}>
+                    Enter your new email address. We will immediately dispatch a 6-digit security OTP code to verify ownership.
+                  </p>
+                  <div className="cd-form-row">
+                    <label className="cd-form-label">New Email Address</label>
+                    <input
+                      className="cd-form-input"
+                      type="email"
+                      required
+                      placeholder="newemail@example.com"
+                      value={newEmailInput}
+                      onChange={e => setNewEmailInput(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="cd-btn-primary"
+                    style={{ width: '100%', marginTop: 8 }}
+                    disabled={profileSaving}
+                    onClick={handleRequestEmailChange}
+                  >
+                    {profileSaving ? 'Sending OTP… ⏳' : 'Send 6-Digit Verification Code →'}
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ background: '#e0e7ff', color: '#3730a3', padding: '10px 14px', borderRadius: 8, fontSize: 12.5, marginBottom: 16 }}>
+                    📧 We sent a 6-digit code to <b>{newEmailInput}</b>. Check your inbox and spam folder.
+                  </div>
+                  <div className="cd-form-row">
+                    <label className="cd-form-label">Enter 6-Digit OTP Code</label>
+                    <input
+                      className="cd-form-input"
+                      type="text"
+                      maxLength={6}
+                      placeholder="123456"
+                      style={{ fontSize: 20, letterSpacing: 6, textAlign: 'center', fontWeight: 'bold' }}
+                      value={emailOtpInput}
+                      onChange={e => setEmailOtpInput(e.target.value)}
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="cd-btn-primary"
+                    style={{ width: '100%', marginTop: 8 }}
+                    disabled={profileSaving}
+                    onClick={handleVerifyEmailChange}
+                  >
+                    {profileSaving ? 'Verifying… ⏳' : '✓ Confirm & Update Email Address'}
+                  </button>
+                  <div style={{ textAlign: 'center', marginTop: 12 }}>
+                    <button
+                      type="button"
+                      style={{ background: 'none', border: 'none', color: '#6366f1', fontSize: 12, cursor: 'pointer', textDecoration: 'underline' }}
+                      onClick={() => setEmailOtpSent(false)}
+                    >
+                      ← Change entered email
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1750,6 +2385,86 @@ export default function ClientDashboard() {
             <div className="cd-modal-footer">
               <button className="cd-btn-secondary" onClick={() => setBillingModalOpen(false)}>Cancel</button>
               <button className="cd-btn-primary" form="billingForm" type="submit">Save Billing Info</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ TESTIMONIAL / RATING POPUP MODAL (After Project Approval) ══ */}
+      {feedbackModalOpen && (
+        <div className="cd-modal-overlay" onClick={() => setFeedbackModalOpen(false)}>
+          <div className="cd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 540, borderRadius: 16, background: '#ffffff', color: '#0f172a' }}>
+            <div className="cd-modal-header" style={{ borderBottom: '1px solid #f1f5f9', padding: '20px 24px' }}>
+              <div>
+                <h2 style={{ fontSize: 20, margin: 0, color: '#0f172a', fontWeight: 800 }}>⭐ Rate Your Project Experience</h2>
+                <p style={{ margin: '4px 0 0', fontSize: 13, color: '#64748b' }}>Your feedback helps maintain top-tier execution and quality standards.</p>
+              </div>
+              <button className="cd-modal-close" onClick={() => setFeedbackModalOpen(false)}>×</button>
+            </div>
+            <div className="cd-modal-body" style={{ padding: '24px' }}>
+              <form id="feedbackForm" onSubmit={handleTestimonialSubmit}>
+                {/* Rating Selector */}
+                <div style={{ marginBottom: 20, textAlign: 'center', background: '#f8fafc', padding: '16px', borderRadius: 12, border: '1px solid #e2e8f0' }}>
+                  <label style={{ display: 'block', fontSize: 12, fontWeight: 700, color: '#475569', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.05em' }}>
+                    Overall Rating ({feedbackRating} of 5 Stars)
+                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'center', gap: 10 }}>
+                    {[1, 2, 3, 4, 5].map(star => (
+                      <button
+                        key={star}
+                        type="button"
+                        onClick={() => setFeedbackRating(star)}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          fontSize: 32,
+                          cursor: 'pointer',
+                          color: star <= feedbackRating ? '#f59e0b' : '#cbd5e1',
+                          transition: 'transform 0.15s ease',
+                          transform: star <= feedbackRating ? 'scale(1.1)' : 'scale(1)',
+                        }}
+                      >
+                        ★
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="cd-form-row" style={{ marginBottom: 16 }}>
+                  <label className="cd-form-label" style={{ fontWeight: 700, color: '#334155' }}>Your Title / Company Name</label>
+                  <input
+                    className="cd-form-input"
+                    type="text"
+                    placeholder="e.g. Founder, Nova Studio / Marketing Lead"
+                    value={feedbackRole}
+                    onChange={e => setFeedbackRole(e.target.value)}
+                  />
+                </div>
+
+                <div className="cd-form-row" style={{ marginBottom: 8 }}>
+                  <label className="cd-form-label" style={{ fontWeight: 700, color: '#334155' }}>Your Review &amp; Feedback *</label>
+                  <textarea
+                    className="cd-form-textarea"
+                    rows={4}
+                    required
+                    placeholder="Describe your experience with the deliverables, adherence to timeline, and overall quality..."
+                    value={feedbackQuote}
+                    onChange={e => setFeedbackQuote(e.target.value)}
+                  />
+                </div>
+              </form>
+            </div>
+            <div className="cd-modal-footer" style={{ borderTop: '1px solid #f1f5f9', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button type="button" className="cd-btn-secondary" onClick={() => setFeedbackModalOpen(false)}>Skip for now</button>
+              <button
+                className="cd-btn-primary"
+                form="feedbackForm"
+                type="submit"
+                disabled={feedbackSubmitting}
+                style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: 8, fontWeight: 700, cursor: 'pointer' }}
+              >
+                {feedbackSubmitting ? 'Submitting… ⏳' : '⭐ Submit Testimonial'}
+              </button>
             </div>
           </div>
         </div>

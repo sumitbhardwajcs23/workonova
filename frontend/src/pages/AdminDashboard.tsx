@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { getUser, getToken, logout } from '../utils/auth.js';
+import { downloadClientInvoicePDF } from '../utils/pdfInvoice.js';
 import { API_BASE } from '../config.js';
+import { formatImageUrl, fetchDirectImageUrl } from '../utils/imageResolver.js';
 import './AdminDashboard.css';
 
 interface Order {
@@ -10,11 +12,18 @@ interface Order {
   tier: string;
   price: number;
   status: string;
+  milestoneStage?: number;
+  amountPaid?: number;
   description: string;
   submissionLink: string;
+  midpointSubmissionLink?: string;
+  midpointSubmissionNotes?: string;
+  midpointApprovedAt?: string;
   qaApprovedLink: string;
   freelancerId?: number;
   freelancerPayoutAmount?: number;
+  payoutStatus?: string;
+  payoutReleasedAt?: string;
   adminRevisionComments?: string;
   createdAt: string;
   updatedAt?: string;
@@ -127,6 +136,22 @@ export default function AdminDashboard() {
   const [teamForm, setTeamForm] = useState({ name: '', role: '', subtitle: '', description: '', bio: '', uniqueFact: '', image: '', orderIndex: 0 });
   const [teamModalOpen, setTeamModalOpen] = useState(false);
 
+  // Gallery / Portfolio Management
+  const [galleryList, setGalleryList] = useState<any[]>([]);
+  const [editingGallery, setEditingGallery] = useState<any | null>(null);
+  const [galleryForm, setGalleryForm] = useState({
+    title: '',
+    category: 'Website Development',
+    mediaType: 'image',
+    mediaUrl: '',
+    thumbnailUrl: '',
+    description: '',
+    clientName: '',
+    featured: true,
+    orderIndex: 0
+  });
+  const [galleryModalOpen, setGalleryModalOpen] = useState(false);
+
   const fetchDashboardData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
@@ -149,6 +174,9 @@ export default function AdminDashboard() {
       const resTeam = await fetch(`${API_BASE}/api/admin/team`, { headers: { Authorization: `Bearer ${token}` } });
       const dataTeam = await resTeam.json();
 
+      const resGal = await fetch(`${API_BASE}/api/admin/gallery`, { headers: { Authorization: `Bearer ${token}` } });
+      const dataGal = await resGal.json();
+
       let dataFin: any = null;
       if (isMaster) {
         const resFin = await fetch(`${API_BASE}/api/admin/financials`, { headers: { Authorization: `Bearer ${token}` } });
@@ -164,6 +192,7 @@ export default function AdminDashboard() {
       if (resB.ok) setBlogsList(dataB.data || []);
       if (resBu.ok) setBundlesList(dataBu.data || []);
       if (resTeam.ok) setTeamList(dataTeam.data || []);
+      if (resGal.ok) setGalleryList(dataGal.data || []);
     } catch (err: any) {
       if (!silent) setError(err.message);
     } finally {
@@ -291,6 +320,37 @@ export default function AdminDashboard() {
       setSuccess(`Freelancer '${newFreelancerForm.name}' onboarded successfully!`);
       setOnboardingOpen(false);
       setNewFreelancerForm({ name: '', email: '', password: '', services: [], portfolioLink: '' });
+      fetchDashboardData();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const handleUpdatePayoutAmount = async (orderId: number, newAmount: number) => {
+    if (!isMaster) return;
+    setError(''); setSuccess('');
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/orders/${orderId}/payout-amount`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ payoutAmount: newAmount })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update payout amount');
+      setSuccess(`✅ Payout amount for Order #WN-${orderId} updated to ₹${newAmount.toLocaleString('en-IN')}`);
+      fetchDashboardData();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const handleApprovePayout = async (orderId: number) => {
+    if (!isMaster) return;
+    setError(''); setSuccess('');
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/orders/${orderId}/approve-payout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to approve payout');
+      setSuccess(`🛡️ Payout for Order #WN-${orderId} approved by Admin! Ready for final disbursement.`);
       fetchDashboardData();
     } catch (err: any) { setError(err.message); }
   };
@@ -478,10 +538,13 @@ export default function AdminDashboard() {
     const method = editingTeam ? 'PUT' : 'POST';
 
     try {
+      const resolvedImage = await fetchDirectImageUrl(teamForm.image);
+      const payload = { ...teamForm, image: resolvedImage || teamForm.image };
+
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(teamForm)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to save team member');
@@ -508,11 +571,152 @@ export default function AdminDashboard() {
     } catch (err: any) { setError(err.message); }
   };
 
+  const handleGallerySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(''); setSuccess('');
+    const url = editingGallery ? `${API_BASE}/api/admin/gallery/${editingGallery.id}` : `${API_BASE}/api/admin/gallery`;
+    const method = editingGallery ? 'PUT' : 'POST';
 
-  // ── CSV EXPORT MOCK ───────────────────────────────────────────
-  const exportToCSV = (filename: string) => {
-    setSuccess(`CSV Export started: Saved ${filename} download to desktop.`);
-    setTimeout(() => setSuccess(''), 4000);
+    try {
+      const resolvedMediaUrl = galleryForm.mediaType === 'image' ? await fetchDirectImageUrl(galleryForm.mediaUrl) : galleryForm.mediaUrl;
+      const resolvedThumbnailUrl = galleryForm.thumbnailUrl ? await fetchDirectImageUrl(galleryForm.thumbnailUrl) : (galleryForm.mediaType === 'image' ? resolvedMediaUrl : '');
+      const payload = { ...galleryForm, mediaUrl: resolvedMediaUrl || galleryForm.mediaUrl, thumbnailUrl: resolvedThumbnailUrl };
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save portfolio item');
+      setSuccess(`Portfolio item '${galleryForm.title}' saved successfully!`);
+      setGalleryModalOpen(false);
+      setEditingGallery(null);
+      setGalleryForm({ title: '', category: 'Website Development', mediaType: 'image', mediaUrl: '', thumbnailUrl: '', description: '', clientName: '', featured: true, orderIndex: 0 });
+      fetchDashboardData();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const handleGalleryDelete = async (id: number) => {
+    if (!window.confirm('Are you sure you want to remove this item from the gallery?')) return;
+    setError(''); setSuccess('');
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/gallery/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete portfolio item');
+      setSuccess('Portfolio item deleted.');
+      fetchDashboardData();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const handleGalleryToggleFeatured = async (item: any) => {
+    setError(''); setSuccess('');
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/gallery/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ featured: item.featured === 1 ? false : true })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update visibility');
+      setSuccess(`Updated '${item.title}' visibility.`);
+      fetchDashboardData();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  // ── EXPORT CLIENTS DATABASE TO EXCEL (.CSV) ───────────────────
+  const exportClientsToExcel = () => {
+    if (clientRows.length === 0) {
+      setError('No clients available to export.');
+      return;
+    }
+    const headers = ['Client Name', 'Email Address', 'Phone Number', 'Account Status', 'Total Orders Placed', 'Active Tasks', 'Lifetime Spend (INR)', 'Export Date'];
+    const rows = clientRows.map(c => [
+      `"${(c.name || '').replace(/"/g, '""')}"`,
+      `"${(c.email || '').replace(/"/g, '""')}"`,
+      `"${(c.phone || '').replace(/"/g, '""')}"`,
+      `"${c.status}"`,
+      c.totalOrders,
+      c.activeTasks,
+      `"${c.ltv}"`,
+      `"${new Date().toLocaleDateString('en-IN')}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Workonova_Clients_Database_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setSuccess('📥 Downloaded full clients database spreadsheet (Excel compatible .CSV)!');
+  };
+
+  // ── EXPORT FINANCIAL & ORDERS LEDGER TO EXCEL (.CSV) ─────────
+  const exportFinancialsToExcel = () => {
+    if (orders.length === 0) {
+      setError('No orders/transactions available to export.');
+      return;
+    }
+    const headers = [
+      'Order ID',
+      'Client Name',
+      'Client Email',
+      'Service Category',
+      'Tier',
+      'Total Project Value (INR)',
+      'Amount Paid (INR)',
+      'Milestone Stage',
+      'Order Status',
+      'Assigned Freelancer Name',
+      'Freelancer Payout (INR)',
+      'Workonova Commission (INR)',
+      'Payout Escrow Status',
+      'Razorpay Order ID',
+      'Razorpay Payment ID',
+      'Created Date'
+    ];
+
+    const rows = orders.map(o => {
+      const clientName = o.client?.name || 'Client';
+      const clientEmail = o.client?.email || '';
+      const flName = o.freelancer?.name || 'Unassigned';
+      const margin = (o.price || 0) - (o.freelancerPayoutAmount || 0);
+      return [
+        `"ORD-${o.id}"`,
+        `"${clientName.replace(/"/g, '""')}"`,
+        `"${clientEmail.replace(/"/g, '""')}"`,
+        `"${(o.serviceCategory || '').replace(/"/g, '""')}"`,
+        `"${(o.tier || '').toUpperCase()}"`,
+        o.price || 0,
+        o.amountPaid || 0,
+        `"Stage ${o.milestoneStage || 1}"`,
+        `"${(o.status || '').toUpperCase()}"`,
+        `"${flName.replace(/"/g, '""')}"`,
+        o.freelancerPayoutAmount || 0,
+        margin,
+        `"${(o.payoutStatus || 'pending').toUpperCase()}"`,
+        `"${((o as any).razorpayOrderId || '').replace(/"/g, '""')}"`,
+        `"${((o as any).paymentId || '').replace(/"/g, '""')}"`,
+        `"${o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN') : ''}"`
+      ];
+    });
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Workonova_Financial_Ledger_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setSuccess('📥 Downloaded financial & transaction ledger spreadsheet (Excel compatible .CSV)!');
   };
 
   // ── STATISTICS & AGGREGATIONS ────────────────────────────────
@@ -643,6 +847,10 @@ export default function AdminDashboard() {
           </button>
 
           <p className="ad-nav-label">CMS &amp; Web Controls</p>
+          <button className={`ad-nav-item${currentView === 'gallery' ? ' active' : ''}`} onClick={() => goView('gallery')}>
+            <span className="ad-nav-icon">🖼️</span><span>Portfolio Gallery Manager</span>
+            {galleryList.length > 0 && <span className="ad-nav-badge">{galleryList.length}</span>}
+          </button>
           <button className={`ad-nav-item${currentView === 'testimonials' ? ' active' : ''}`} onClick={() => goView('testimonials')}>
             <span className="ad-nav-icon">⭐</span><span>Testimonials Queue</span>
             {testimonialCount > 0 && <span className="ad-nav-badge">{testimonialCount}</span>}
@@ -1031,7 +1239,9 @@ export default function AdminDashboard() {
                     <option value="ltv-high">Sort: LTV (High to Low)</option>
                     <option value="orders-high">Sort: Total Orders (High to Low)</option>
                   </select>
-                  <button className="ad-export-btn" onClick={() => exportToCSV('Clients_Directory_LTV.csv')}>📥 Export CSV</button>
+                  <button className="ad-export-btn" onClick={exportClientsToExcel} style={{ background: '#10b981', color: '#fff', fontWeight: 700, border: 'none', borderRadius: 6, padding: '8px 16px', cursor: 'pointer' }}>
+                    📊 Download Clients Sheet (Excel .CSV)
+                  </button>
                 </div>
 
                 <div className="ad-table-wrap">
@@ -1108,8 +1318,19 @@ export default function AdminDashboard() {
             {currentView === 'financials' && (
               <>
                 <div className="ad-view-header">
-                  <p>Payment Gateway &amp; Revenue Operations</p>
-                  <h1>💳 Razorpay &amp; Financial Control Panel</h1>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <p>Payment Gateway &amp; Revenue Operations</p>
+                      <h1>💳 Razorpay &amp; Financial Control Panel</h1>
+                    </div>
+                    <button
+                      className="ad-btn-primary"
+                      onClick={exportFinancialsToExcel}
+                      style={{ background: '#10b981', color: '#fff', fontWeight: 700, border: 'none', borderRadius: 8, padding: '10px 18px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      📊 Download Financial Ledger (Excel .CSV)
+                    </button>
+                  </div>
                 </div>
 
                 {/* Financial KPIs */}
@@ -1212,36 +1433,113 @@ export default function AdminDashboard() {
             {currentView === 'payouts' && (
               <>
                 <div className="ad-view-header">
-                  <p>Settlement desk</p>
-                  <h1>Freelancer Batch Payouts</h1>
+                  <p>Settlement &amp; Regulation Desk</p>
+                  <h1>Admin-Regulated Specialist Payouts</h1>
                 </div>
-                {orders.filter(o => o.status === 'qa_approved' || o.status === 'client_approved').length === 0 ? (
-                  <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>All freelancer payouts have been settled.</p>
+                {orders.filter(o => ['qa_approved', 'client_approved', 'completed', 'delivered'].includes(o.status)).length === 0 ? (
+                  <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>All specialist payouts have been audited and settled.</p>
                 ) : (
                   <div className="ad-table-wrap">
                     <table className="ad-table">
                       <thead>
-                        <tr><th>Order ID</th><th>Service</th><th>Assigned Freelancer</th><th>Status</th><th>Payout Amount</th><th>Release Funds</th></tr>
+                        <tr>
+                          <th>Order ID</th>
+                          <th>Service &amp; Tier</th>
+                          <th>Assigned Specialist</th>
+                          <th>Client Status</th>
+                          <th>Editable Payout Fee (INR)</th>
+                          <th>Regulation Actions</th>
+                        </tr>
                       </thead>
                       <tbody>
-                        {orders.filter(o => o.status === 'qa_approved' || o.status === 'client_approved').map(o => (
-                          <tr key={o.id}>
-                            <td><b>#WN-{o.id}</b></td>
-                            <td>{o.serviceCategory}</td>
-                            <td>{o.freelancer?.name || 'Assigned Specialist'}</td>
-                            <td>
-                              <span className={`ad-status-pill ${o.status}`}>
-                                {o.status === 'client_approved' ? 'CLIENT APPROVED 🎉' : 'QA APPROVED'}
-                              </span>
-                            </td>
-                            <td><b>₹{o.freelancerPayoutAmount?.toLocaleString()}</b></td>
-                            <td>
-                              <button className="ad-btn-primary" onClick={() => handlePayoutRelease(o.id)}>
-                                {o.status === 'client_approved' ? 'Release Client-Approved Payout' : 'Authorize Payout'}
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
+                        {orders.filter(o => ['qa_approved', 'client_approved', 'completed', 'delivered'].includes(o.status)).map(o => {
+                          const isReleased = o.payoutStatus === 'payout_released' || ['completed', 'delivered'].includes(o.status);
+                          const isApproved = o.payoutStatus === 'payout_approved';
+                          return (
+                            <tr key={o.id}>
+                              <td><b>#WN-{o.id}</b></td>
+                              <td>
+                                <b>{o.serviceCategory}</b>
+                                <small style={{ display: 'block', color: '#6366f1' }}>{o.tier?.toUpperCase() || 'STANDARD'}</small>
+                              </td>
+                              <td>
+                                <b>{o.freelancer?.name || 'Assigned Specialist'}</b>
+                                <small style={{ display: 'block', color: '#888' }}>{o.freelancer?.email}</small>
+                              </td>
+                              <td>
+                                <span className={`ad-status-pill ${o.status}`}>
+                                  {o.status === 'client_approved' ? 'CLIENT APPROVED 🎉' : o.status.replace('_', ' ').toUpperCase()}
+                                </span>
+                              </td>
+                              <td>
+                                {!isReleased ? (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                    <span style={{ color: '#888', fontWeight: 600 }}>₹</span>
+                                    <input
+                                      type="number"
+                                      defaultValue={o.freelancerPayoutAmount || 0}
+                                      id={`payout-input-${o.id}`}
+                                      style={{
+                                        width: 100,
+                                        padding: '4px 8px',
+                                        borderRadius: 4,
+                                        border: '1px solid #cbd5e1',
+                                        fontSize: 13,
+                                        fontWeight: 700
+                                      }}
+                                    />
+                                    <button
+                                      style={{
+                                        background: '#334155',
+                                        color: '#ffffff',
+                                        border: 'none',
+                                        padding: '4px 8px',
+                                        borderRadius: 4,
+                                        fontSize: 11,
+                                        fontWeight: 600,
+                                        cursor: 'pointer'
+                                      }}
+                                      onClick={() => {
+                                        const el = document.getElementById(`payout-input-${o.id}`) as HTMLInputElement;
+                                        if (el) {
+                                          handleUpdatePayoutAmount(o.id, Number(el.value));
+                                        }
+                                      }}
+                                    >
+                                      Save ✏️
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <b style={{ color: '#10b981' }}>₹{o.freelancerPayoutAmount?.toLocaleString('en-IN')}</b>
+                                )}
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  {!isReleased && !isApproved && (
+                                    <button
+                                      style={{ background: '#4f46e5', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                                      onClick={() => handleApprovePayout(o.id)}
+                                    >
+                                      🛡️ Approve Payout
+                                    </button>
+                                  )}
+                                  {!isReleased ? (
+                                    <button
+                                      style={{ background: '#10b981', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                                      onClick={() => handlePayoutRelease(o.id)}
+                                    >
+                                      💰 Release / Disburse Payout
+                                    </button>
+                                  ) : (
+                                    <span style={{ fontSize: 12, color: '#10b981', fontWeight: 700, padding: '4px 8px', background: '#dcfce7', borderRadius: 4 }}>
+                                      ✓ Payout Disbursed
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1262,16 +1560,41 @@ export default function AdminDashboard() {
                       <tr><th>Invoice ID</th><th>Related Order</th><th>Client Company</th><th>Gross Collection</th><th>GST Claimable (18%)</th><th>Invoice PDF</th></tr>
                     </thead>
                     <tbody>
-                      {orders.map((o, i) => (
-                        <tr key={o.id}>
-                          <td><b>INV-2026-{100 + i}</b></td>
-                          <td>Order #WN-{o.id}</td>
-                          <td>{o.client?.name}</td>
-                          <td>₹{o.price.toLocaleString()}</td>
-                          <td>₹{Math.round(o.price * 0.18).toLocaleString()}</td>
-                          <td><button className="ad-pag-btn" onClick={() => exportToCSV(`GST_Invoice_WN-${o.id}.pdf`)}>📄 Export PDF</button></td>
-                        </tr>
-                      ))}
+                      {orders.map((o) => {
+                        const inv = `WN-INV-2026-${String(o.id).padStart(4, '0')}`;
+                        return (
+                          <tr key={o.id}>
+                            <td><b>{inv}</b></td>
+                            <td>Order #WN-{o.id}</td>
+                            <td>{o.client?.name || 'Valued Client'}</td>
+                            <td>₹{o.price.toLocaleString('en-IN')}</td>
+                            <td>₹{Math.round(o.price * 0.18).toLocaleString('en-IN')}</td>
+                            <td>
+                              <button
+                                className="ad-pag-btn"
+                                style={{ background: '#4f46e5', color: '#ffffff', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                onClick={() => {
+                                  downloadClientInvoicePDF({
+                                    orderId: o.id,
+                                    clientName: o.client?.name || 'Valued Client',
+                                    clientEmail: o.client?.email || 'client@workonova.com',
+                                    clientPhone: o.client?.phone || '',
+                                    serviceCategory: o.serviceCategory,
+                                    tier: o.tier || 'STANDARD',
+                                    totalPrice: o.price,
+                                    amountPaid: o.amountPaid || o.price,
+                                    milestoneStage: o.milestoneStage || 3,
+                                    date: new Date(o.createdAt).toLocaleDateString('en-IN'),
+                                  });
+                                  setSuccess(`📄 Downloaded Tax Invoice ${inv}.pdf`);
+                                }}
+                              >
+                                📄 Export PDF
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -1618,6 +1941,146 @@ export default function AdminDashboard() {
                     </tbody>
                   </table>
                 </div>
+              </>
+            )}
+
+            {/* ════ VIEW: GALLERY / PORTFOLIO CMS ════ */}
+            {currentView === 'gallery' && (
+              <>
+                <div className="ad-view-header">
+                  <p>Landing page portfolio &amp; media showcase</p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <h1>🖼️ Portfolio Gallery Manager</h1>
+                    {isMaster && (
+                      <button className="ad-btn-primary" onClick={() => {
+                        setEditingGallery(null);
+                        setGalleryForm({
+                          title: '',
+                          category: 'Website Development',
+                          mediaType: 'image',
+                          mediaUrl: '',
+                          thumbnailUrl: '',
+                          description: '',
+                          clientName: '',
+                          featured: true,
+                          orderIndex: galleryList.length + 1
+                        });
+                        setGalleryModalOpen(true);
+                      }}>+ Add Portfolio Media</button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="ad-card" style={{ marginBottom: 24, background: '#1e293b', color: '#f8fafc', padding: '16px 20px', borderRadius: 12 }}>
+                  <p style={{ margin: 0, fontSize: 13, color: '#94a3b8', lineHeight: 1.5 }}>
+                    💡 <b>Gallery Display Rules:</b> Uploaded items with <b>Featured (ON)</b> are immediately displayed in the <b>Landing Page Portfolio / Gallery Section</b>. If media is an Image, clients can click to zoom. If media is a Video (YouTube / MP4), it plays with responsive embeds.
+                  </p>
+                </div>
+
+                {galleryList.length === 0 ? (
+                  <div className="ad-card" style={{ textAlign: 'center', padding: 40, color: '#94a3b8' }}>
+                    <p style={{ fontSize: 16 }}>No portfolio media items uploaded yet.</p>
+                    <button className="ad-btn-primary" onClick={() => {
+                      setEditingGallery(null);
+                      setGalleryModalOpen(true);
+                    }}>+ Upload First Media</button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+                    {galleryList.map(item => (
+                      <div key={item.id} style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+                        {/* Media Preview Box */}
+                        <div style={{ height: 190, position: 'relative', background: '#000', overflow: 'hidden' }}>
+                          {item.mediaType === 'video' ? (
+                            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#000' }}>
+                              {item.mediaUrl.includes('youtube.com') || item.mediaUrl.includes('youtu.be') ? (
+                                <iframe
+                                  src={item.mediaUrl.replace('watch?v=', 'embed/')}
+                                  title={item.title}
+                                  style={{ width: '100%', height: '100%', border: 'none' }}
+                                />
+                              ) : (
+                                <video src={item.mediaUrl} style={{ width: '100%', height: '100%', objectFit: 'cover' }} controls />
+                              )}
+                              <span style={{ position: 'absolute', top: 10, right: 10, background: 'rgba(239, 68, 68, 0.9)', color: '#fff', fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 4 }}>▶ VIDEO</span>
+                            </div>
+                          ) : (
+                            <img
+                              src={item.thumbnailUrl || item.mediaUrl}
+                              alt={item.title}
+                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                            />
+                          )}
+                          <span style={{ position: 'absolute', top: 10, left: 10, background: 'rgba(15, 23, 42, 0.85)', color: '#38bdf8', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 4, backdropFilter: 'blur(4px)' }}>
+                            {item.category}
+                          </span>
+                        </div>
+
+                        {/* Card Info */}
+                        <div style={{ padding: 16, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                          <div>
+                            <h3 style={{ margin: '0 0 6px', fontSize: 16, color: '#f8fafc', fontWeight: 700 }}>{item.title}</h3>
+                            {item.clientName && <p style={{ margin: '0 0 8px', fontSize: 12, color: '#94a3b8' }}>Client: <b>{item.clientName}</b></p>}
+                            <p style={{ margin: 0, fontSize: 13, color: '#cbd5e1', lineHeight: 1.4 }}>{item.description || 'No description provided.'}</p>
+                          </div>
+
+                          <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => handleGalleryToggleFeatured(item)}
+                              style={{
+                                background: item.featured === 1 ? '#065f46' : '#334155',
+                                color: item.featured === 1 ? '#34d399' : '#94a3b8',
+                                border: 'none',
+                                padding: '5px 10px',
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 700,
+                                cursor: 'pointer'
+                              }}
+                            >
+                              {item.featured === 1 ? '✓ Active on Landing' : 'Hidden'}
+                            </button>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              {isMaster && (
+                                <button
+                                  className="ad-btn-secondary"
+                                  style={{ padding: '4px 10px', fontSize: 11 }}
+                                  onClick={() => {
+                                    setEditingGallery(item);
+                                    setGalleryForm({
+                                      title: item.title,
+                                      category: item.category,
+                                      mediaType: item.mediaType || 'image',
+                                      mediaUrl: item.mediaUrl,
+                                      thumbnailUrl: item.thumbnailUrl || '',
+                                      description: item.description || '',
+                                      clientName: item.clientName || '',
+                                      featured: item.featured === 1,
+                                      orderIndex: item.orderIndex || 0,
+                                    });
+                                    setGalleryModalOpen(true);
+                                  }}
+                                >
+                                  Edit ✏️
+                                </button>
+                              )}
+                              {isMaster && (
+                                <button
+                                  className="ad-btn-secondary"
+                                  style={{ padding: '4px 10px', fontSize: 11, color: '#f87171' }}
+                                  onClick={() => handleGalleryDelete(item.id)}
+                                >
+                                  Delete 🗑️
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </>
             )}
 
@@ -2060,8 +2523,59 @@ export default function AdminDashboard() {
                   <input className="ad-form-input" type="text" required placeholder="e.g. Strategic Leadership & Agency Vision" value={teamForm.subtitle} onChange={e => setTeamForm({ ...teamForm, subtitle: e.target.value })} />
                 </div>
                 <div className="ad-form-row">
-                  <label className="ad-form-label">Profile Image Link (URL)</label>
-                  <input className="ad-form-input" type="url" required placeholder="https://images.unsplash.com/..." value={teamForm.image} onChange={e => setTeamForm({ ...teamForm, image: e.target.value })} />
+                  <label className="ad-form-label">
+                    Profile Image Link (URL)
+                    <span style={{ fontSize: 11, fontWeight: 'normal', color: '#586455', marginLeft: 8 }}>
+                      (ImgBB, Google Drive, Dropbox, Imgur, or direct image link)
+                    </span>
+                  </label>
+                  <input
+                    className="ad-form-input"
+                    type="url"
+                    required
+                    placeholder="https://ibb.co/d00LTQmk or https://images.unsplash.com/..."
+                    value={teamForm.image}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      setTeamForm(prev => ({ ...prev, image: val }));
+                      if (val.includes('ibb.co') || val.includes('imgbb.com') || val.includes('postimg.cc') || val.includes('drive.google.com') || val.includes('dropbox.com') || val.includes('imgur.com')) {
+                        const resolved = await fetchDirectImageUrl(val);
+                        if (resolved && resolved !== val) {
+                          setTeamForm(prev => ({ ...prev, image: resolved }));
+                        }
+                      }
+                    }}
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim();
+                      if (val) {
+                        const resolved = await fetchDirectImageUrl(val);
+                        if (resolved && resolved !== val) {
+                          setTeamForm(prev => ({ ...prev, image: resolved }));
+                        }
+                      }
+                    }}
+                  />
+                  {teamForm.image && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12, background: '#f8faf7', padding: '8px 12px', borderRadius: 8, border: '1px solid #d4dfd2' }}>
+                      <img
+                        src={formatImageUrl(teamForm.image)}
+                        alt="Preview"
+                        style={{ width: 44, height: 44, borderRadius: '50%', objectFit: 'cover', border: '2px solid #3c9d18', background: '#eef3eb' }}
+                        onError={async () => {
+                          const direct = await fetchDirectImageUrl(teamForm.image);
+                          if (direct && direct !== teamForm.image) {
+                            setTeamForm(prev => ({ ...prev, image: direct }));
+                          }
+                        }}
+                      />
+                      <div style={{ fontSize: 12, color: '#404c3e' }}>
+                        <span style={{ fontWeight: 600, color: '#172414', display: 'block' }}>Photo Preview</span>
+                        <span style={{ fontSize: 11, color: '#586455' }}>
+                          {teamForm.image.includes('ibb.co') || teamForm.image.includes('imgbb.com') ? '⚡ ImgBB link auto-converted' : '✓ Live preview'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="ad-form-row">
                   <label className="ad-form-label">Short Intro Card Description</label>
@@ -2084,6 +2598,183 @@ export default function AdminDashboard() {
             <div className="ad-modal-footer">
               <button className="ad-btn-secondary" onClick={() => { setTeamModalOpen(false); setEditingTeam(null); }}>Cancel</button>
               <button className="ad-btn-primary" form="teamForm" type="submit">Save Mind Details</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GALLERY / PORTFOLIO MEDIA MODAL */}
+      {galleryModalOpen && (
+        <div className="ad-modal-overlay" onClick={() => { setGalleryModalOpen(false); setEditingGallery(null); }}>
+          <div className="ad-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div className="ad-modal-header">
+              <h2>🖼️ {editingGallery ? 'Edit Portfolio Media' : 'Add Portfolio Media'}</h2>
+              <button className="ad-modal-close" onClick={() => { setGalleryModalOpen(false); setEditingGallery(null); }}>×</button>
+            </div>
+            <div className="ad-modal-body" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
+              <form id="galleryForm" onSubmit={handleGallerySubmit}>
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Project Title</label>
+                  <input
+                    className="ad-form-input"
+                    type="text"
+                    required
+                    placeholder="e.g. SaaS Analytics Dashboard Redesign"
+                    value={galleryForm.title}
+                    onChange={e => setGalleryForm({ ...galleryForm, title: e.target.value })}
+                  />
+                </div>
+
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Service Category</label>
+                  <select
+                    className="ad-form-select"
+                    value={galleryForm.category}
+                    onChange={e => setGalleryForm({ ...galleryForm, category: e.target.value })}
+                  >
+                    <option value="Website Development">Website Development</option>
+                    <option value="Graphic Designing">Graphic Designing</option>
+                    <option value="Video Editing">Video Editing</option>
+                    <option value="3D Design & Modeling">3D Design &amp; Modeling</option>
+                    <option value="VFX &amp; Animation">VFX &amp; Animation</option>
+                    <option value="AI Services">AI Services</option>
+                    <option value="Software &amp; App Development">Software &amp; App Development</option>
+                    <option value="Digital Marketing">Digital Marketing</option>
+                  </select>
+                </div>
+
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Media Type (Image or Video)</label>
+                  <select
+                    className="ad-form-select"
+                    value={galleryForm.mediaType}
+                    onChange={e => setGalleryForm({ ...galleryForm, mediaType: e.target.value as any })}
+                  >
+                    <option value="image">🖼️ Image (Screenshot / Render / Poster)</option>
+                    <option value="video">▶️ Video (YouTube Embed / MP4 Link / Showreel)</option>
+                  </select>
+                </div>
+
+                <div className="ad-form-row">
+                  <label className="ad-form-label">
+                    {galleryForm.mediaType === 'video' ? 'Video URL / YouTube Embed URL' : 'Image URL (ImgBB, Google Drive, Direct Link)'}
+                  </label>
+                  <input
+                    className="ad-form-input"
+                    type="url"
+                    required
+                    placeholder={galleryForm.mediaType === 'video' ? 'https://www.youtube.com/embed/...' : 'https://ibb.co/d00LTQmk or https://images.unsplash.com/...'}
+                    value={galleryForm.mediaUrl}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      setGalleryForm(prev => ({ ...prev, mediaUrl: val }));
+                      if (galleryForm.mediaType === 'image' && (val.includes('ibb.co') || val.includes('imgbb.com') || val.includes('postimg.cc') || val.includes('drive.google.com') || val.includes('dropbox.com') || val.includes('imgur.com'))) {
+                        const resolved = await fetchDirectImageUrl(val);
+                        if (resolved && resolved !== val) {
+                          setGalleryForm(prev => ({ ...prev, mediaUrl: resolved }));
+                        }
+                      }
+                    }}
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim();
+                      if (val && galleryForm.mediaType === 'image') {
+                        const resolved = await fetchDirectImageUrl(val);
+                        if (resolved && resolved !== val) {
+                          setGalleryForm(prev => ({ ...prev, mediaUrl: resolved }));
+                        }
+                      }
+                    }}
+                  />
+                  {galleryForm.mediaType === 'image' && galleryForm.mediaUrl && (
+                    <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 12, background: '#f8faf7', padding: '8px 12px', borderRadius: 8, border: '1px solid #d4dfd2' }}>
+                      <img
+                        src={formatImageUrl(galleryForm.mediaUrl)}
+                        alt="Preview"
+                        style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', border: '1px solid #3c9d18', background: '#eef3eb' }}
+                        onError={async () => {
+                          const direct = await fetchDirectImageUrl(galleryForm.mediaUrl);
+                          if (direct && direct !== galleryForm.mediaUrl) {
+                            setGalleryForm(prev => ({ ...prev, mediaUrl: direct }));
+                          }
+                        }}
+                      />
+                      <div style={{ fontSize: 12, color: '#404c3e' }}>
+                        <span style={{ fontWeight: 600, color: '#172414', display: 'block' }}>Media Preview</span>
+                        <span style={{ fontSize: 11, color: '#586455' }}>
+                          {galleryForm.mediaUrl.includes('ibb.co') || galleryForm.mediaUrl.includes('imgbb.com') ? '⚡ ImgBB link auto-converted' : '✓ Live preview'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Thumbnail URL (Optional fallback image)</label>
+                  <input
+                    className="ad-form-input"
+                    type="url"
+                    placeholder="https://ibb.co/d00LTQmk or https://images.unsplash.com/..."
+                    value={galleryForm.thumbnailUrl}
+                    onChange={async (e) => {
+                      const val = e.target.value;
+                      setGalleryForm(prev => ({ ...prev, thumbnailUrl: val }));
+                      if (val.includes('ibb.co') || val.includes('imgbb.com') || val.includes('postimg.cc') || val.includes('drive.google.com') || val.includes('dropbox.com') || val.includes('imgur.com')) {
+                        const resolved = await fetchDirectImageUrl(val);
+                        if (resolved && resolved !== val) {
+                          setGalleryForm(prev => ({ ...prev, thumbnailUrl: resolved }));
+                        }
+                      }
+                    }}
+                    onBlur={async (e) => {
+                      const val = e.target.value.trim();
+                      if (val) {
+                        const resolved = await fetchDirectImageUrl(val);
+                        if (resolved && resolved !== val) {
+                          setGalleryForm(prev => ({ ...prev, thumbnailUrl: resolved }));
+                        }
+                      }
+                    }}
+                  />
+                </div>
+
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Client Name / Brand (Optional)</label>
+                  <input
+                    className="ad-form-input"
+                    type="text"
+                    placeholder="e.g. Apex Metrics Inc."
+                    value={galleryForm.clientName}
+                    onChange={e => setGalleryForm({ ...galleryForm, clientName: e.target.value })}
+                  />
+                </div>
+
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Project Summary Description</label>
+                  <textarea
+                    className="ad-form-textarea"
+                    rows={3}
+                    placeholder="Describe the tech stack, creative direction, and metrics achieved..."
+                    value={galleryForm.description}
+                    onChange={e => setGalleryForm({ ...galleryForm, description: e.target.value })}
+                  />
+                </div>
+
+                <div className="ad-form-row" style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+                  <input
+                    type="checkbox"
+                    id="featuredGal"
+                    checked={galleryForm.featured}
+                    onChange={e => setGalleryForm({ ...galleryForm, featured: e.target.checked })}
+                  />
+                  <label htmlFor="featuredGal" className="ad-form-label" style={{ margin: 0, textTransform: 'none' }}>
+                    Show in Landing Page Portfolio / Gallery Section
+                  </label>
+                </div>
+              </form>
+            </div>
+            <div className="ad-modal-footer">
+              <button className="ad-btn-secondary" onClick={() => { setGalleryModalOpen(false); setEditingGallery(null); }}>Cancel</button>
+              <button className="ad-btn-primary" form="galleryForm" type="submit">Save Media</button>
             </div>
           </div>
         </div>

@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
-import { orders, clients, freelancers, admins, messages, testimonials, blogs, bundles, teamMembers } from '../db/schema.js';
+import { orders, clients, freelancers, admins, messages, testimonials, blogs, bundles, teamMembers, gallery } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authGuard, roleGuard } from '../middleware/auth.js';
 import { sendWelcomeEmail, sendOrderUpdateEmail, sendPayoutReleasedEmail } from '../utils/mailer.js';
+import { resolveDirectImageUrl } from '../utils/imageResolver.js';
 
 const adminApp = new Hono<{ Variables: { user: any } }>();
 adminApp.use('*', authGuard);
@@ -312,7 +313,71 @@ adminApp.get('/financials', roleGuard(['admin']), async (c) => {
   }
 });
 
-// ── POST Release Payout to Freelancer (after client approval) ──
+// ── PUT Update Freelancer Payout Amount (Admin Regulated & Editable) ──
+adminApp.put('/orders/:id/payout-amount', roleGuard(['admin']), async (c) => {
+  try {
+    const orderId = Number(c.req.param('id'));
+    const { amount } = await c.req.json();
+    const payoutAmount = Number(amount);
+    if (isNaN(payoutAmount) || payoutAmount < 0) {
+      return c.json({ error: 'Valid payout amount is required.' }, 400);
+    }
+
+    const existing = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+    if (existing.length === 0) return c.json({ error: 'Order not found.' }, 404);
+
+    const updated = await db.update(orders).set({
+      freelancerPayoutAmount: payoutAmount,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(orders.id, orderId)).returning();
+
+    await db.insert(messages).values({
+      orderId,
+      senderId: 0,
+      senderRole: 'admin',
+      messageText: `[SYSTEM] ⚙️ Admin adjusted specialist payout to ₹${payoutAmount.toLocaleString('en-IN')}.`,
+    });
+
+    return c.json({
+      success: true,
+      message: `Specialist payout amount set to ₹${payoutAmount.toLocaleString('en-IN')}.`,
+      data: updated[0],
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Admin Approve Payout (Stage 1 of Regulation) ──
+adminApp.post('/orders/:id/approve-payout', roleGuard(['admin']), async (c) => {
+  try {
+    const orderId = Number(c.req.param('id'));
+    const existing = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+    if (existing.length === 0) return c.json({ error: 'Order not found.' }, 404);
+
+    const updated = await db.update(orders).set({
+      payoutStatus: 'payout_approved',
+      updatedAt: new Date().toISOString(),
+    }).where(eq(orders.id, orderId)).returning();
+
+    await db.insert(messages).values({
+      orderId,
+      senderId: 0,
+      senderRole: 'admin',
+      messageText: `[SYSTEM] 🛡️ Admin verified and APPROVED specialist payout of ₹${(updated[0].freelancerPayoutAmount || 0).toLocaleString('en-IN')}. Scheduled for disbursement.`,
+    });
+
+    return c.json({
+      success: true,
+      message: 'Payout approved by Admin.',
+      data: updated[0],
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Release Payout to Freelancer (Disbursement Execution) ──
 adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
@@ -321,15 +386,14 @@ adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
     if (existing.length === 0) return c.json({ error: 'Order not found.' }, 404);
 
     const orderRecord = existing[0];
-    if (orderRecord.status !== 'client_approved' && orderRecord.status !== 'qa_approved') {
-      return c.json({ error: `Cannot release payout for order with status '${orderRecord.status}'. Order must be approved first.` }, 400);
-    }
     if (!orderRecord.freelancerId) {
       return c.json({ error: 'No freelancer assigned to this order.' }, 400);
     }
 
     const updated = await db.update(orders).set({
-      status: 'delivered',
+      status: 'completed',
+      payoutStatus: 'payout_released',
+      payoutReleasedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
 
@@ -338,7 +402,7 @@ adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
       orderId,
       senderId: 0,
       senderRole: 'admin',
-      messageText: `[SYSTEM] 💰 Admin approved and released ₹${(orderRecord.freelancerPayoutAmount || 0).toLocaleString('en-IN')} milestone payout to specialist. Project completed and delivered!`,
+      messageText: `[SYSTEM] 💰 Admin approved and disbursed ₹${(orderRecord.freelancerPayoutAmount || 0).toLocaleString('en-IN')} milestone payout to specialist. Project complete!`,
     });
 
     // Notify Freelancer via Email
@@ -635,7 +699,8 @@ adminApp.post('/team', roleGuard(['admin']), async (c) => {
     const description = sanitise(body.description || '');
     const bio = body.bio || '';
     const uniqueFact = sanitise(body.uniqueFact || '');
-    const image = sanitise(body.image || '');
+    const rawImage = sanitise(body.image || '');
+    const image = await resolveDirectImageUrl(rawImage);
     const orderIndex = Number(body.orderIndex) || 0;
 
     if (!name || !role) return c.json({ error: 'Name and Designation (role) are required.' }, 400);
@@ -669,7 +734,8 @@ adminApp.put('/team/:id', roleGuard(['admin']), async (c) => {
     const description = sanitise(body.description || '');
     const bio = body.bio || '';
     const uniqueFact = sanitise(body.uniqueFact || '');
-    const image = sanitise(body.image || '');
+    const rawImage = sanitise(body.image || '');
+    const image = rawImage ? await resolveDirectImageUrl(rawImage) : undefined;
     const orderIndex = body.orderIndex !== undefined ? Number(body.orderIndex) : undefined;
 
     const updated = await db.update(teamMembers).set({
@@ -694,6 +760,101 @@ adminApp.delete('/team/:id', roleGuard(['admin']), async (c) => {
   try {
     const memberId = Number(c.req.param('id'));
     const deleted = await db.delete(teamMembers).where(eq(teamMembers.id, memberId)).returning();
+    return c.json({ data: deleted[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── GET Gallery (Admin Management) ──
+adminApp.get('/gallery', roleGuard(['admin', 'qa_admin']), async (c) => {
+  try {
+    const list = await db.select().from(gallery);
+    return c.json({ data: list });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Create Gallery Item ──
+adminApp.post('/gallery', roleGuard(['admin']), async (c) => {
+  try {
+    const body = await c.req.json();
+    const title = sanitise(body.title || '');
+    const category = sanitise(body.category || 'Graphic Design');
+    const mediaType = body.mediaType === 'video' ? 'video' : 'image';
+    const rawMediaUrl = sanitise(body.mediaUrl || '');
+    const mediaUrl = mediaType === 'image' ? await resolveDirectImageUrl(rawMediaUrl) : rawMediaUrl;
+    const rawThumbnailUrl = sanitise(body.thumbnailUrl || '');
+    const thumbnailUrl = rawThumbnailUrl ? await resolveDirectImageUrl(rawThumbnailUrl) : (mediaType === 'image' ? mediaUrl : '');
+    const description = sanitise(body.description || '');
+    const clientName = sanitise(body.clientName || '');
+    const featured = body.featured !== undefined ? (body.featured ? 1 : 0) : 1;
+    const orderIndex = Number(body.orderIndex) || 0;
+
+    if (!title || !mediaUrl) {
+      return c.json({ error: 'Title and Media Link/URL are required.' }, 400);
+    }
+
+    const inserted = await db.insert(gallery).values({
+      title,
+      category,
+      mediaType,
+      mediaUrl,
+      thumbnailUrl: thumbnailUrl || mediaUrl,
+      description,
+      clientName,
+      featured,
+      orderIndex,
+      createdAt: new Date().toISOString(),
+    }).returning();
+
+    return c.json({ data: inserted[0] }, 201);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── PUT Update Gallery Item ──
+adminApp.put('/gallery/:id', roleGuard(['admin']), async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const title = body.title ? sanitise(body.title) : undefined;
+    const category = body.category ? sanitise(body.category) : undefined;
+    const mediaType = body.mediaType ? (body.mediaType === 'video' ? 'video' : 'image') : undefined;
+    const rawMediaUrl = body.mediaUrl ? sanitise(body.mediaUrl) : undefined;
+    const mediaUrl = rawMediaUrl ? ((mediaType === 'image' || (!mediaType && !body.mediaType)) ? await resolveDirectImageUrl(rawMediaUrl) : rawMediaUrl) : undefined;
+    const rawThumb = body.thumbnailUrl ? sanitise(body.thumbnailUrl) : undefined;
+    const thumbnailUrl = rawThumb ? await resolveDirectImageUrl(rawThumb) : undefined;
+    const description = body.description !== undefined ? sanitise(body.description) : undefined;
+    const clientName = body.clientName !== undefined ? sanitise(body.clientName) : undefined;
+    const featured = body.featured !== undefined ? (body.featured ? 1 : 0) : undefined;
+    const orderIndex = body.orderIndex !== undefined ? Number(body.orderIndex) : undefined;
+
+    const updated = await db.update(gallery).set({
+      title,
+      category,
+      mediaType,
+      mediaUrl,
+      thumbnailUrl,
+      description,
+      clientName,
+      featured,
+      orderIndex,
+    }).where(eq(gallery.id, id)).returning();
+
+    return c.json({ data: updated[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── DELETE Gallery Item ──
+adminApp.delete('/gallery/:id', roleGuard(['admin']), async (c) => {
+  try {
+    const id = Number(c.req.param('id'));
+    const deleted = await db.delete(gallery).where(eq(gallery.id, id)).returning();
     return c.json({ data: deleted[0] });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);

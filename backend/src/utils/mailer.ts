@@ -283,7 +283,173 @@ export async function sendPaymentReceiptEmail(params: {
   return sendMail(toEmail, subject, html, text);
 }
 
-// ── 6. Send Payout Released Email to Freelancer ──
+// ── 7. Send Email Change Verification OTP Email ──
+export async function sendEmailChangeOtpEmail(toEmail: string, name: string, otpCode: string) {
+  const subject = `🔐 ${otpCode} is your OTP to change Workonova Email`;
+  const text = `Hello ${name},\n\nYou requested to update your email address on Workonova to ${toEmail}.\n\nYour verification OTP is: ${otpCode}\n\nThis code will expire in 10 minutes.\n\nWORKONOVA Security Team`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0f1117; color: #ffffff; padding: 40px 20px; border-radius: 12px; max-width: 550px; margin: 0 auto;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #6366f1; margin: 0; font-size: 28px; letter-spacing: 2px;">WORKONOVA</h1>
+        <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">ACCOUNT SECURITY</p>
+      </div>
+      <div style="background: #1e2230; padding: 28px; border-radius: 10px; border: 1px solid #2e344a;">
+        <h2 style="margin-top: 0; color: #f8fafc; font-size: 20px;">Confirm Email Address Update</h2>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">Hello <strong>${name}</strong>,</p>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">You have requested to change your Workonova account email to this address. Use the 6-digit OTP below to verify ownership:</p>
+        <div style="background: #0f1117; padding: 18px; text-align: center; border-radius: 8px; margin: 24px 0; border: 1px solid #6366f1;">
+          <span style="font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #818cf8;">${otpCode}</span>
+        </div>
+        <p style="color: #94a3b8; font-size: 13px;">This code will expire in 10 minutes. If you did not make this request, please change your password immediately.</p>
+      </div>
+      <div style="text-align: center; margin-top: 24px; color: #64748b; font-size: 12px;">
+        © 2026 WORKONOVA · Encrypted & Monitored Security
+      </div>
+    </div>
+  `;
+
+  return sendMail(toEmail, subject, html, text);
+}
+
+// ── 8. Send Milestone Payment Email (Milestone 1, 2, or 3) ──
+export async function sendMilestonePaymentEmail(params: {
+  toEmail: string;
+  name: string;
+  orderId: number;
+  serviceCategory: string;
+  milestoneNumber: number;
+  milestoneTitle: string;
+  amountPaid: number;
+  totalOrderPrice: number;
+  paymentId: string;
+  nextStepDescription: string;
+}) {
+  const { toEmail, name, orderId, serviceCategory, milestoneNumber, milestoneTitle, amountPaid, totalOrderPrice, paymentId, nextStepDescription } = params;
+  const formattedPaid = `₹${amountPaid.toLocaleString('en-IN')}`;
+  const formattedTotal = `₹${totalOrderPrice.toLocaleString('en-IN')}`;
+  const subject = `💳 Milestone ${milestoneNumber}/3 Paid: ${formattedPaid} for Order #WN-${orderId} · WORKONOVA`;
+  const text = `Hello ${name},\n\nPayment received for Milestone ${milestoneNumber} (${milestoneTitle})!\n\nOrder: #WN-${orderId} - ${serviceCategory}\nAmount Paid: ${formattedPaid} (Total Contract: ${formattedTotal})\nPayment ID: ${paymentId}\n\nNext Step: ${nextStepDescription}\n\nWORKONOVA Operations`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0f1117; color: #ffffff; padding: 40px 20px; border-radius: 12px; max-width: 550px; margin: 0 auto;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #6366f1; margin: 0; font-size: 28px; letter-spacing: 2px;">WORKONOVA</h1>
+        <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">MILESTONE ESCROW & PAYMENTS</p>
+      </div>
+      <div style="background: #1e2230; padding: 28px; border-radius: 10px; border: 1px solid #2e344a;">
+        <div style="display: inline-block; background: #312e81; color: #a5b4fc; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 12px;">MILESTONE ${milestoneNumber} OF 3</div>
+        <h2 style="margin-top: 0; color: #38bdf8; font-size: 22px;">${milestoneTitle} Payment Confirmed! 🛡️</h2>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">Hello <strong>${name}</strong>,</p>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">
+          Your payment of <strong>${formattedPaid}</strong> for <strong>Order #WN-${orderId}</strong> (${serviceCategory}) has been successfully processed and secured in escrow.
+        </p>
+        <div style="background: #0f1117; padding: 16px; border-radius: 8px; margin: 20px 0; border: 1px solid #334155; font-size: 14px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <span style="color: #94a3b8;">Milestone:</span>
+            <span style="color: #f8fafc; font-weight: bold;">Stage ${milestoneNumber} (${milestoneTitle})</span>
+          </div>
+          <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+            <span style="color: #94a3b8;">Amount Paid Now:</span>
+            <span style="color: #10b981; font-weight: bold;">${formattedPaid}</span>
+          </div>
+          <div style="display: flex; justify-content: space-between;">
+            <span style="color: #94a3b8;">Total Project Value:</span>
+            <span style="color: #f8fafc;">${formattedTotal}</span>
+          </div>
+        </div>
+        <div style="background: #1e1b4b; border: 1px solid #4338ca; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px;">
+          <p style="color: #c7d2fe; font-size: 13px; margin: 0; line-height: 1.5;">
+            <strong>Next Phase:</strong> ${nextStepDescription}
+          </p>
+        </div>
+        <div style="text-align: center; margin-top: 24px;">
+          <a href="http://workonova-frontend-7049301.s3-website-us-east-1.amazonaws.com/client-dashboard" style="background: #6366f1; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">View Project Dashboard ↗</a>
+        </div>
+      </div>
+      <div style="text-align: center; margin-top: 24px; color: #64748b; font-size: 12px;">
+        © 2026 WORKONOVA · 100% Quality &amp; Regulated Escrow Guarantee
+      </div>
+    </div>
+  `;
+
+  return sendMail(toEmail, subject, html, text);
+}
+
+// ── 9. Send Midpoint 50% Work Submitted Email (to Client) ──
+export async function sendMidpointSubmittedEmail(toEmail: string, clientName: string, orderId: number, serviceCategory: string, notes?: string) {
+  const subject = `🚀 50% Midpoint Deliverable Uploaded for Order #WN-${orderId} · WORKONOVA`;
+  const text = `Hello ${clientName},\n\nThe specialist working on your Order #WN-${orderId} (${serviceCategory}) has uploaded the 50% Midpoint Deliverable for your review.\n\nNotes from specialist: ${notes || 'Midpoint preview ready for review.'}\n\nPlease log in to your Client Dashboard to review and approve the deliverable to unlock the next milestone.\n\nWORKONOVA Team`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0f1117; color: #ffffff; padding: 40px 20px; border-radius: 12px; max-width: 550px; margin: 0 auto;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #6366f1; margin: 0; font-size: 28px; letter-spacing: 2px;">WORKONOVA</h1>
+        <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">PROJECT MILESTONES</p>
+      </div>
+      <div style="background: #1e2230; padding: 28px; border-radius: 10px; border: 1px solid #2e344a;">
+        <div style="display: inline-block; background: #7c2d12; color: #fdba74; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 12px;">ACTION REQUIRED: 50% REVIEW</div>
+        <h2 style="margin-top: 0; color: #fbbf24; font-size: 22px;">Midpoint Work Ready for Review! ✨</h2>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">Hello <strong>${clientName}</strong>,</p>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">
+          Your specialist has uploaded the <strong>50% Midpoint Deliverable</strong> for <strong>Order #WN-${orderId}</strong> (${serviceCategory}).
+        </p>
+        ${notes ? `
+        <div style="background: #0f1117; border-left: 3px solid #fbbf24; padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0;">
+          <p style="color: #94a3b8; font-size: 12px; margin: 0 0 4px 0;">Specialist Notes:</p>
+          <p style="color: #e2e8f0; font-size: 14px; margin: 0;">${notes}</p>
+        </div>` : ''}
+        <p style="color: #cbd5e1; font-size: 14px;">
+          Log in to inspect the work and click <strong>Approve & Pay 25% Milestone</strong> to proceed towards 100% final delivery.
+        </p>
+        <div style="text-align: center; margin-top: 24px;">
+          <a href="http://workonova-frontend-7049301.s3-website-us-east-1.amazonaws.com/client-dashboard" style="background: #fbbf24; color: #000000; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">Review 50% Deliverables ↗</a>
+        </div>
+      </div>
+      <div style="text-align: center; margin-top: 24px; color: #64748b; font-size: 12px;">
+        © 2026 WORKONOVA · Safe Milestone Deliveries
+      </div>
+    </div>
+  `;
+
+  return sendMail(toEmail, subject, html, text);
+}
+
+// ── 10. Send Midpoint 50% Work Approved Email (to Freelancer) ──
+export async function sendMidpointApprovedEmail(toEmail: string, freelancerName: string, orderId: number, serviceCategory: string) {
+  const subject = `🎉 50% Midpoint Approved for Order #WN-${orderId} · Proceed to Final Delivery`;
+  const text = `Hello ${freelancerName},\n\nThe client has reviewed and APPROVED your 50% midpoint work for Order #WN-${orderId} (${serviceCategory}) and funded Milestone 2.\n\nYou are authorized to proceed to 100% final delivery.\n\nWORKONOVA Crew Operations`;
+
+  const html = `
+    <div style="font-family: Arial, sans-serif; background-color: #0f1117; color: #ffffff; padding: 40px 20px; border-radius: 12px; max-width: 550px; margin: 0 auto;">
+      <div style="text-align: center; margin-bottom: 24px;">
+        <h1 style="color: #6366f1; margin: 0; font-size: 28px; letter-spacing: 2px;">WORKONOVA</h1>
+        <p style="color: #94a3b8; font-size: 13px; margin-top: 4px;">CREW OPERATIONS</p>
+      </div>
+      <div style="background: #1e2230; padding: 28px; border-radius: 10px; border: 1px solid #2e344a;">
+        <div style="display: inline-block; background: #064e3b; color: #34d399; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 12px;">MILESTONE APPROVED</div>
+        <h2 style="margin-top: 0; color: #34d399; font-size: 22px;">50% Midpoint Approved! 🚀</h2>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">Hello <strong>${freelancerName}</strong>,</p>
+        <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">
+          The client has reviewed and approved your 50% midpoint deliverables for <strong>Order #WN-${orderId}</strong> (${serviceCategory}). Milestone 2 (25%) has been funded into escrow.
+        </p>
+        <p style="color: #cbd5e1; font-size: 14px;">
+          You can now complete and submit the <strong>100% Final Deliverables</strong> from your Specialist Dashboard.
+        </p>
+        <div style="text-align: center; margin-top: 24px;">
+          <a href="http://workonova-frontend-7049301.s3-website-us-east-1.amazonaws.com/freelancer-dashboard" style="background: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">Open Specialist Dashboard ↗</a>
+        </div>
+      </div>
+      <div style="text-align: center; margin-top: 24px; color: #64748b; font-size: 12px;">
+        © 2026 WORKONOVA · Elite Talent Infrastructure
+      </div>
+    </div>
+  `;
+
+  return sendMail(toEmail, subject, html, text);
+}
+
+// ── 11. Send Payout Released Email to Freelancer ──
 export async function sendPayoutReleasedEmail(toEmail: string, name: string, orderId: number, amount: number, serviceCategory: string) {
   const formattedAmount = `₹${amount.toLocaleString('en-IN')}`;
   const subject = `💰 Payout Released: ${formattedAmount} for Order #WN-${orderId} · WORKONOVA`;
@@ -297,15 +463,15 @@ export async function sendPayoutReleasedEmail(toEmail: string, name: string, ord
       </div>
       <div style="background: #1e2230; padding: 28px; border-radius: 10px; border: 1px solid #2e344a;">
         <div style="display: inline-block; background: #064e3b; color: #34d399; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; margin-bottom: 12px;">PAYOUT RELEASED</div>
-        <h2 style="margin-top: 0; color: #34d399; font-size: 24px;">${formattedAmount} Credited 🎉</h2>
+        <h2 style="margin-top: 0; color: #34d399; font-size: 24px;">${formattedAmount} Disbursed 🎉</h2>
         <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">Hello <strong>${name}</strong>,</p>
         <p style="color: #cbd5e1; font-size: 15px; line-height: 1.6;">
-          The client has finalized and approved your deliverables for <strong>Order #WN-${orderId}</strong> (${serviceCategory}). Admin has authorized the release of your milestone payout:
+          Admin has reviewed and authorized the release of your milestone payout of <strong>${formattedAmount}</strong> for <strong>Order #WN-${orderId}</strong> (${serviceCategory}).
         </p>
         <div style="background: #0f1117; padding: 18px; text-align: center; border-radius: 8px; margin: 20px 0; border: 1px solid #10b981;">
           <span style="font-size: 28px; font-weight: bold; color: #10b981;">${formattedAmount}</span>
         </div>
-        <p style="color: #94a3b8; font-size: 13px;">Funds will be processed directly to your registered bank account or UPI ID. Check your earnings ledger on your Specialist Dashboard.</p>
+        <p style="color: #94a3b8; font-size: 13px;">Funds are processed directly to your registered bank account or UPI details on file.</p>
         <div style="margin-top: 24px; text-align: center;">
           <a href="http://workonova-frontend-7049301.s3-website-us-east-1.amazonaws.com/freelancer-dashboard" style="background: #10b981; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: bold; display: inline-block;">Open Earnings Ledger ↗</a>
         </div>
@@ -318,4 +484,5 @@ export async function sendPayoutReleasedEmail(toEmail: string, name: string, ord
 
   return sendMail(toEmail, subject, html, text);
 }
+
 

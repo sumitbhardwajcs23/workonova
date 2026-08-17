@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { orders, messages, freelancers } from '../db/schema.js';
+import { orders, messages, freelancers, clients } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authGuard, roleGuard } from '../middleware/auth.js';
+import { sendMidpointSubmittedEmail } from '../utils/mailer.js';
 
 const freelancerApp = new Hono<{ Variables: { user: any } }>();
 freelancerApp.use('*', authGuard);
@@ -20,12 +21,20 @@ freelancerApp.get('/tasks', async (c) => {
       id: orders.id,
       serviceCategory: orders.serviceCategory,
       tier: orders.tier,
+      price: orders.price,
       description: orders.description,
       submissionLink: orders.submissionLink, // Client's initial raw assets / Drive / Dropbox link
-      freelancerSubmissionLink: orders.freelancerSubmissionLink, // Freelancer's delivered assets link
+      midpointSubmissionLink: orders.midpointSubmissionLink, // 50% milestone work
+      midpointSubmissionNotes: orders.midpointSubmissionNotes,
+      midpointApprovedAt: orders.midpointApprovedAt,
+      freelancerSubmissionLink: orders.freelancerSubmissionLink, // Freelancer's final delivered assets link
       qaApprovedLink: orders.qaApprovedLink,
       status: orders.status,
+      milestoneStage: orders.milestoneStage,
+      amountPaid: orders.amountPaid,
       freelancerPayoutAmount: orders.freelancerPayoutAmount,
+      payoutStatus: orders.payoutStatus,
+      payoutReleasedAt: orders.payoutReleasedAt,
       adminRevisionComments: orders.adminRevisionComments,
       createdAt: orders.createdAt,
       updatedAt: orders.updatedAt,
@@ -37,7 +46,53 @@ freelancerApp.get('/tasks', async (c) => {
   }
 });
 
-// ── POST Submit Task Work ──
+// ── POST Submit 50% Midpoint Work ──
+freelancerApp.post('/tasks/:id/submit-midpoint', async (c) => {
+  try {
+    const user = c.get('user');
+    const orderId = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const midpointSubmissionLink = (body.midpointSubmissionLink || '').trim();
+    const midpointSubmissionNotes = sanitise(body.midpointSubmissionNotes || '');
+
+    if (!midpointSubmissionLink) {
+      return c.json({ error: '50% Midpoint deliverable link is required.' }, 400);
+    }
+
+    const taskRecord = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.freelancerId, user.id))).limit(1);
+    if (taskRecord.length === 0) return c.json({ error: 'Task not found or not assigned to you.' }, 404);
+
+    const updated = await db.update(orders).set({
+      midpointSubmissionLink,
+      midpointSubmissionNotes,
+      status: 'midpoint_submitted',
+      updatedAt: new Date().toISOString(),
+    }).where(eq(orders.id, orderId)).returning();
+
+    await db.insert(messages).values({
+      orderId,
+      senderId: user.id,
+      senderRole: 'freelancer',
+      messageText: `[SYSTEM] 📤 Specialist uploaded 50% Midpoint Deliverable for client review: ${midpointSubmissionLink}`,
+    });
+
+    // Notify client via email
+    const clientRows = await db.select().from(clients).where(eq(clients.id, taskRecord[0].clientId)).limit(1);
+    if (clientRows.length > 0) {
+      await sendMidpointSubmittedEmail(clientRows[0].email, clientRows[0].name, orderId, taskRecord[0].serviceCategory, midpointSubmissionNotes);
+    }
+
+    return c.json({
+      success: true,
+      message: '50% Midpoint deliverable submitted successfully!',
+      data: updated[0],
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Submit 100% Final Task Work ──
 freelancerApp.post('/tasks/:id/submit', async (c) => {
   try {
     const user = c.get('user');
@@ -60,7 +115,7 @@ freelancerApp.post('/tasks/:id/submit', async (c) => {
       orderId,
       senderId: user.id,
       senderRole: 'freelancer',
-      messageText: `[SYSTEM] 📤 Specialist uploaded completed assets for QA validation review: ${submissionLink}`,
+      messageText: `[SYSTEM] 📤 Specialist uploaded 100% completed final assets for QA validation review: ${submissionLink}`,
     });
 
     return c.json({ data: { id: updated[0].id, status: updated[0].status, freelancerSubmissionLink: updated[0].freelancerSubmissionLink } });

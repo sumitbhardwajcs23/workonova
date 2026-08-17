@@ -30,12 +30,53 @@ function AuthField({ label, name, type = 'text', placeholder = '', id, value, on
   label: string; name: string; type?: string; placeholder?: string; id?: string;
   value: string; onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => void;
 }) {
+  const [showPassword, setShowPassword] = useState(false);
+  const isPasswordType = type === 'password';
+  const effectiveType = isPasswordType ? (showPassword ? 'text' : 'password') : type;
+
   return (
     <div>
       <label className="am-label" htmlFor={id || name}>{label}</label>
-      <input id={id || name} className="am-input" type={type} name={name}
-        placeholder={placeholder} required
-        value={value} onChange={onChange} />
+      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+        <input id={id || name} className="am-input" type={effectiveType} name={name}
+          placeholder={placeholder} required
+          value={value} onChange={onChange}
+          style={isPasswordType ? { paddingRight: '42px' } : undefined} />
+        {isPasswordType && (
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            tabIndex={-1}
+            style={{
+              position: 'absolute',
+              right: '10px',
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: '#94a3b8',
+              padding: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'color 0.2s',
+            }}
+            title={showPassword ? 'Hide password' : 'Show password'}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+          >
+            {showPassword ? (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                <line x1="1" y1="1" x2="23" y2="23"></line>
+              </svg>
+            ) : (
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -74,6 +115,11 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
 
+  // Password visibility states
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmNewPassword, setShowConfirmNewPassword] = useState(false);
+
   const navigate = useNavigate();
 
   // Reset on open
@@ -93,6 +139,9 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
       setResetToken('');
       setNewPassword('');
       setConfirmNewPassword('');
+      setShowLoginPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmNewPassword(false);
     }
   }, [isOpen, initialMode, initialRole]);
 
@@ -119,12 +168,23 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
   };
 
   const toggleService = (value: string, checked: boolean) => {
-    setFormData(prev => ({
-      ...prev,
-      services: checked
-        ? [...(prev.services || []), value]
-        : (prev.services || []).filter((s: string) => s !== value),
-    }));
+    setFormData(prev => {
+      const current = prev.services || [];
+      if (checked) {
+        if (role === 'freelancer' && current.length >= 4) {
+          return prev; // Disallow more than 4 for freelancers
+        }
+        return {
+          ...prev,
+          services: [...current, value],
+        };
+      } else {
+        return {
+          ...prev,
+          services: current.filter((s: string) => s !== value),
+        };
+      }
+    });
   };
 
   const handleOtpChange = (index: number, value: string) => {
@@ -466,21 +526,49 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
         </div>
       </>
     );
-    if (step === 2) return (
-      <>
-        <h3 className="am-heading">Area of expertise</h3>
-        <p className="am-help">What services can you provide?</p>
-        <div className="am-checkgrid">
-          {freelancerServices.map(s => (
-            <label key={s} className="am-check">
-              <input type="checkbox" checked={(formData.services || []).includes(s)}
-                onChange={e => toggleService(s, e.target.checked)} />
-              {s}
-            </label>
-          ))}
-        </div>
-      </>
-    );
+    if (step === 2) {
+      const selectedCount = (formData.services || []).length;
+      const isMaxReached = selectedCount >= 4;
+
+      return (
+        <>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '4px' }}>
+            <h3 className="am-heading" style={{ margin: 0 }}>Area of expertise</h3>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: isMaxReached ? '#f59e0b' : '#38bdf8' }}>
+              Selected: {selectedCount}/4 (Max 4)
+            </span>
+          </div>
+          <p className="am-help">Select up to 4 services you specialize in.</p>
+          <div className="am-checkgrid">
+            {freelancerServices.map(s => {
+              const isSelected = (formData.services || []).includes(s);
+              const isDisabled = !isSelected && isMaxReached;
+
+              return (
+                <label
+                  key={s}
+                  className={`am-check ${isDisabled ? 'disabled' : ''}`}
+                  style={isDisabled ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isSelected}
+                    disabled={isDisabled}
+                    onChange={e => toggleService(s, e.target.checked)}
+                  />
+                  {s}
+                </label>
+              );
+            })}
+          </div>
+          {isMaxReached && (
+            <p style={{ fontSize: '12px', color: '#f59e0b', margin: '8px 0 0 0' }}>
+              ⚠️ Selection limit reached (4/4). Uncheck a service if you want to select another one.
+            </p>
+          )}
+        </>
+      );
+    };
     if (step === 3) return (
       <>
         <h3 className="am-heading">Proof of work</h3>
@@ -654,8 +742,43 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
                         <button type="button" className="am-link" style={{ fontSize: '12px', background: 'none', border: 'none', cursor: 'pointer' }}
                           onClick={() => switchMode('forgot')}>Forgot password?</button>
                       </div>
-                      <input id="login-password" className="am-input" type="password" name="login-password"
-                        placeholder="••••••••" required value={formData['login-password'] || ''} onChange={handleInput} />
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input id="login-password" className="am-input" type={showLoginPassword ? 'text' : 'password'} name="login-password"
+                          placeholder="••••••••" required value={formData['login-password'] || ''} onChange={handleInput}
+                          style={{ paddingRight: '42px' }} />
+                        <button
+                          type="button"
+                          onClick={() => setShowLoginPassword(!showLoginPassword)}
+                          tabIndex={-1}
+                          style={{
+                            position: 'absolute',
+                            right: '10px',
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            color: '#94a3b8',
+                            padding: '6px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'color 0.2s',
+                          }}
+                          title={showLoginPassword ? 'Hide password' : 'Show password'}
+                          aria-label={showLoginPassword ? 'Hide password' : 'Show password'}
+                        >
+                          {showLoginPassword ? (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                              <line x1="1" y1="1" x2="23" y2="23"></line>
+                            </svg>
+                          ) : (
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                              <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                          )}
+                        </button>
+                      </div>
                     </div>
                   </div>
                   {error && <p className="am-error">{error}</p>}
@@ -719,13 +842,79 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
                     <div className="am-fields" style={{ margin: '20px 0' }}>
                       <div>
                         <label className="am-label" htmlFor="new-password">New password</label>
-                        <input id="new-password" className="am-input" type="password" placeholder="Minimum 8 characters" required
-                          value={newPassword} onChange={e => setNewPassword(e.target.value)} />
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <input id="new-password" className="am-input" type={showNewPassword ? 'text' : 'password'} placeholder="Minimum 8 characters" required
+                            value={newPassword} onChange={e => setNewPassword(e.target.value)}
+                            style={{ paddingRight: '42px' }} />
+                          <button
+                            type="button"
+                            onClick={() => setShowNewPassword(!showNewPassword)}
+                            tabIndex={-1}
+                            style={{
+                              position: 'absolute',
+                              right: '10px',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#94a3b8',
+                              padding: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                            title={showNewPassword ? 'Hide password' : 'Show password'}
+                          >
+                            {showNewPassword ? (
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                <line x1="1" y1="1" x2="23" y2="23"></line>
+                              </svg>
+                            ) : (
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                              </svg>
+                            )}
+                          </button>
+                        </div>
                       </div>
                       <div>
                         <label className="am-label" htmlFor="confirm-new-password">Confirm new password</label>
-                        <input id="confirm-new-password" className="am-input" type="password" placeholder="Repeat new password" required
-                          value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)} />
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <input id="confirm-new-password" className="am-input" type={showConfirmNewPassword ? 'text' : 'password'} placeholder="Repeat new password" required
+                            value={confirmNewPassword} onChange={e => setConfirmNewPassword(e.target.value)}
+                            style={{ paddingRight: '42px' }} />
+                          <button
+                            type="button"
+                            onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
+                            tabIndex={-1}
+                            style={{
+                              position: 'absolute',
+                              right: '10px',
+                              background: 'none',
+                              border: 'none',
+                              cursor: 'pointer',
+                              color: '#94a3b8',
+                              padding: '6px',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                            title={showConfirmNewPassword ? 'Hide password' : 'Show password'}
+                          >
+                            {showConfirmNewPassword ? (
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                <line x1="1" y1="1" x2="23" y2="23"></line>
+                              </svg>
+                            ) : (
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                              </svg>
+                            )}
+                          </button>
+                        </div>
                       </div>
                     </div>
                     {error && <p className="am-error">{error}</p>}

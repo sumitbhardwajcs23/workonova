@@ -73,14 +73,21 @@ export const orders = pgTable('orders', {
   tier: text('tier').notNull(),                    // 'silver' | 'gold' | 'custom'
   price: integer('price').notNull(),
   status: text('status').notNull().default('pending_payment'),
-  // 'pending_payment' | 'paid' | 'assigned' | 'submitted' | 'qa_approved'
-  // | 'revision_requested' | 'client_approved' | 'delivered' | 'cancelled'
+  // 'pending_payment' | 'paid_50' | 'assigned' | 'midpoint_submitted' | 'midpoint_approved'
+  // | 'paid_75' | 'submitted' | 'qa_approved' | 'revision_requested' | 'client_approved' | 'completed' | 'cancelled'
+  milestoneStage: integer('milestone_stage').notNull().default(1), // 1=50% deposit, 2=25% midpoint, 3=25% final delivery, 4=fully paid
+  amountPaid: integer('amount_paid').notNull().default(0),         // Cumulative amount paid by client in INR
   description: text('description'),
   submissionLink: text('submission_link'), // Client's initial raw assets / Drive / Dropbox link
-  freelancerSubmissionLink: text('freelancer_submission_link'), // Freelancer's delivered work link
+  midpointSubmissionLink: text('midpoint_submission_link'), // Freelancer's 50% progress work link
+  midpointSubmissionNotes: text('midpoint_submission_notes'), // Freelancer's midpoint notes
+  midpointApprovedAt: text('midpoint_approved_at'), // Timestamp when client approved 50% deliverable
+  freelancerSubmissionLink: text('freelancer_submission_link'), // Freelancer's 100% final delivered work link
   qaApprovedLink: text('qa_approved_link'), // QA-vetted final deliverables link
   freelancerId: integer('freelancer_id'),           // References freelancers.id
   freelancerPayoutAmount: integer('freelancer_payout_amount'),
+  payoutStatus: text('payout_status').notNull().default('pending_admin_approval'), // 'pending_admin_approval' | 'payout_approved' | 'payout_released' | 'held'
+  payoutReleasedAt: text('payout_released_at'),
   paymentId: text('payment_id'),
   razorpayOrderId: text('razorpay_order_id'),
   adminRevisionComments: text('admin_revision_comments'),
@@ -153,6 +160,22 @@ export const teamMembers = pgTable('team_members', {
   bio: text('bio').notNull(),
   uniqueFact: text('unique_fact').notNull(),
   image: text('image').notNull(),
+  orderIndex: integer('order_index').default(0),
+  createdAt: text('created_at').default(new Date().toISOString()),
+});
+
+// ─── 11. GALLERY TABLE ─────────────────────────────────────────
+// Dynamic portfolio media (images and video embeds) for landing page gallery
+export const gallery = pgTable('gallery', {
+  id: serial('id').primaryKey(),
+  title: text('title').notNull(),
+  category: text('category').notNull().default('Graphic Design'), // 'Graphic Design' | 'Video Editing' | 'Website Development' | '3D & VFX' | 'AI Services' | 'Software Development'
+  mediaType: text('media_type').notNull().default('image'), // 'image' | 'video'
+  mediaUrl: text('media_url').notNull(), // direct image url, YouTube embed url, or video mp4 link
+  thumbnailUrl: text('thumbnail_url'),
+  description: text('description'),
+  clientName: text('client_name'),
+  featured: integer('featured').notNull().default(1), // 1=show on landing page, 0=hidden
   orderIndex: integer('order_index').default(0),
   createdAt: text('created_at').default(new Date().toISOString()),
 });

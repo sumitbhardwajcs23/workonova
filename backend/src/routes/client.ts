@@ -1,10 +1,10 @@
 import { Hono } from 'hono';
 import { db } from '../db/index.js';
-import { orders, messages, testimonials } from '../db/schema.js';
+import { orders, messages, testimonials, freelancers } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authGuard, roleGuard } from '../middleware/auth.js';
 
-import { sendOrderUpdateEmail, sendPaymentReceiptEmail } from '../utils/mailer.js';
+import { sendOrderUpdateEmail, sendPaymentReceiptEmail, sendMilestonePaymentEmail, sendMidpointApprovedEmail } from '../utils/mailer.js';
 import { createRazorpayOrder, verifyRazorpaySignature, getRazorpayKeyId } from '../utils/razorpay.js';
 
 const clientApp = new Hono<{ Variables: { user: any } }>();
@@ -66,6 +66,8 @@ clientApp.post('/orders', async (c) => {
       price,
       description,
       status: 'pending_payment',
+      milestoneStage: 1,
+      amountPaid: 0,
     }).returning();
 
     return c.json({ data: newOrder[0] }, 201);
@@ -105,7 +107,7 @@ clientApp.post('/orders/:id/submit', async (c) => {
     const updated = await db.update(orders).set({
       description: description || orderRecord[0].description,
       submissionLink,
-      status: 'paid',
+      status: orderRecord[0].status === 'pending_payment' ? 'paid_50' : orderRecord[0].status,
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
 
@@ -115,7 +117,7 @@ clientApp.post('/orders/:id/submit', async (c) => {
       user.name,
       updated[0].id,
       'Intake Files Received & Order Confirmed',
-      `Your project brief and asset link have been successfully received. Order status is now PAID & READY FOR FREELANCER ASSIGNMENT.`
+      `Your project brief and asset link have been successfully received. Order is in production pipeline.`
     );
     if (!sentOrderEmail) console.error(`❌ Failed to send order submission email to client ${user.email}`);
 
@@ -198,8 +200,44 @@ clientApp.post('/testimonials', async (c) => {
   }
 });
 
+// ── POST Client Approve 50% Midpoint Work ──
+clientApp.post('/orders/:id/approve-midpoint', async (c) => {
+  try {
+    const user = c.get('user');
+    const orderId = Number(c.req.param('id'));
+
+    const existing = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.clientId, user.id))).limit(1);
+    if (existing.length === 0) return c.json({ error: 'Order not found.' }, 404);
+
+    const orderRecord = existing[0];
+    const updated = await db.update(orders).set({
+      status: 'midpoint_approved',
+      midpointApprovedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }).where(eq(orders.id, orderId)).returning();
+
+    await db.insert(messages).values({
+      orderId,
+      senderId: user.id,
+      senderRole: 'client',
+      messageText: `[SYSTEM] ✅ Client approved 50% Midpoint deliverable. Unlocked Milestone 2 (25%) payment.`,
+    });
+
+    if (orderRecord.freelancerId) {
+      const fl = await db.select().from(freelancers).where(eq(freelancers.id, orderRecord.freelancerId)).limit(1);
+      if (fl.length > 0) {
+        await sendMidpointApprovedEmail(fl[0].email, fl[0].name, orderId, orderRecord.serviceCategory);
+      }
+    }
+
+    return c.json({ success: true, message: 'Midpoint work approved!', data: updated[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // ═══════════════════════════════════════════════════════════════
-// RAZORPAY PAYMENT GATEWAY ENDPOINTS
+// RAZORPAY PAYMENT GATEWAY ENDPOINTS (50% -> 25% -> 25% MILESTONES)
 // ═══════════════════════════════════════════════════════════════
 
 // ── GET Razorpay Public Key ──
@@ -212,6 +250,7 @@ clientApp.post('/razorpay/create-order', async (c) => {
   try {
     const user = c.get('user');
     const body = await c.req.json();
+    const milestone = Number(body.milestone || 1); // 1 = 50%, 2 = 25%, 3 = 25%
     let orderRecord: any;
 
     if (body.orderId) {
@@ -235,16 +274,33 @@ clientApp.post('/razorpay/create-order', async (c) => {
         price,
         description,
         status: 'pending_payment',
+        milestoneStage: 1,
+        amountPaid: 0,
       }).returning();
       orderRecord = rows[0];
     }
 
+    // Calculate milestone payment amount
+    let milestoneAmount = 0;
+    let milestoneTitle = '';
+    if (milestone === 1) {
+      milestoneAmount = Math.round(orderRecord.price * 0.5); // 50% upfront
+      milestoneTitle = 'Milestone 1 (50% Upfront Kickoff)';
+    } else if (milestone === 2) {
+      milestoneAmount = Math.round(orderRecord.price * 0.25); // 25% midpoint
+      milestoneTitle = 'Milestone 2 (25% Midpoint Approval)';
+    } else {
+      milestoneAmount = Math.max(0, orderRecord.price - (orderRecord.amountPaid || 0)); // 25% final delivery
+      milestoneTitle = 'Milestone 3 (25% Final Delivery Release)';
+    }
+
     const rzpResult = await createRazorpayOrder({
-      amount: orderRecord.price,
+      amount: milestoneAmount,
       currency: 'INR',
-      receipt: `WN-ORD-${orderRecord.id}`,
+      receipt: `WN-ORD-${orderRecord.id}-M${milestone}`,
       notes: {
         orderId: String(orderRecord.id),
+        milestone: String(milestone),
         clientEmail: user.email,
         category: orderRecord.serviceCategory,
         tier: orderRecord.tier,
@@ -255,7 +311,6 @@ clientApp.post('/razorpay/create-order', async (c) => {
       return c.json({ error: rzpResult.error || 'Failed to generate Razorpay payment order' }, 500);
     }
 
-    // Save the razorpay_order_id in DB
     await db.update(orders).set({
       razorpayOrderId: rzpResult.order.id,
       updatedAt: new Date().toISOString(),
@@ -264,6 +319,8 @@ clientApp.post('/razorpay/create-order', async (c) => {
     return c.json({
       success: true,
       orderId: orderRecord.id,
+      milestone,
+      milestoneTitle,
       razorpayOrderId: rzpResult.order.id,
       amount: rzpResult.order.amount,
       currency: rzpResult.order.currency,
@@ -285,7 +342,7 @@ clientApp.post('/razorpay/create-order', async (c) => {
 clientApp.post('/razorpay/verify-payment', async (c) => {
   try {
     const user = c.get('user');
-    const { orderId, razorpay_order_id, razorpay_payment_id, razorpay_signature } = await c.req.json();
+    const { orderId, razorpay_order_id, razorpay_payment_id, razorpay_signature, milestone = 1 } = await c.req.json();
 
     if (!orderId || !razorpay_order_id || !razorpay_payment_id) {
       return c.json({ error: 'Missing required Razorpay payment confirmation fields.' }, 400);
@@ -294,7 +351,8 @@ clientApp.post('/razorpay/verify-payment', async (c) => {
     const orderRecord = await db.select().from(orders).where(and(eq(orders.id, Number(orderId)), eq(orders.clientId, user.id))).limit(1);
     if (orderRecord.length === 0) return c.json({ error: 'Order not found.' }, 404);
 
-    // Verify cryptographic signature
+    const targetOrder = orderRecord[0];
+
     const isValid = verifyRazorpaySignature({
       orderId: razorpay_order_id,
       paymentId: razorpay_payment_id,
@@ -305,38 +363,70 @@ clientApp.post('/razorpay/verify-payment', async (c) => {
       return c.json({ error: 'Payment signature verification failed. Invalid transaction token.' }, 400);
     }
 
-    // Mark order as paid
+    const currentMilestone = Number(milestone);
+    let newStatus = targetOrder.status;
+    let newMilestoneStage = currentMilestone;
+    let paidThisMilestone = 0;
+    let newAmountPaid = targetOrder.amountPaid || 0;
+    let milestoneTitle = '';
+    let nextStepText = '';
+
+    if (currentMilestone === 1) {
+      paidThisMilestone = Math.round(targetOrder.price * 0.5);
+      newAmountPaid = paidThisMilestone;
+      newStatus = targetOrder.freelancerId ? 'assigned' : 'paid_50';
+      newMilestoneStage = 1;
+      milestoneTitle = 'Initial Project Kickoff (50%)';
+      nextStepText = 'Specialist is assigned and will deliver 50% midpoint work for your review.';
+    } else if (currentMilestone === 2) {
+      paidThisMilestone = Math.round(targetOrder.price * 0.25);
+      newAmountPaid = Math.round(targetOrder.price * 0.75);
+      newStatus = 'paid_75';
+      newMilestoneStage = 2;
+      milestoneTitle = '50% Midpoint Approval (25%)';
+      nextStepText = 'Specialist is working on 100% final deliverables.';
+    } else {
+      paidThisMilestone = Math.max(0, targetOrder.price - newAmountPaid);
+      newAmountPaid = targetOrder.price;
+      newStatus = 'client_approved';
+      newMilestoneStage = 3;
+      milestoneTitle = 'Final Project Delivery (25%)';
+      nextStepText = 'Project approved! Payout sent to Admin review for disbursement.';
+    }
+
     const updated = await db.update(orders).set({
-      status: 'paid',
+      status: newStatus,
+      milestoneStage: newMilestoneStage,
+      amountPaid: newAmountPaid,
       paymentId: razorpay_payment_id,
       razorpayOrderId: razorpay_order_id,
+      payoutStatus: currentMilestone === 3 ? 'pending_admin_approval' : targetOrder.payoutStatus,
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, Number(orderId))).returning();
 
-    // Insert confirmation message
     await db.insert(messages).values({
       orderId: Number(orderId),
       senderId: 0,
       senderRole: 'admin',
-      messageText: `[SYSTEM] ✅ Payment of ₹${updated[0].price.toLocaleString('en-IN')} verified successfully via Razorpay (Payment ID: ${razorpay_payment_id}).`,
+      messageText: `[SYSTEM] ✅ Milestone ${currentMilestone} payment of ₹${paidThisMilestone.toLocaleString('en-IN')} received via Razorpay (Payment ID: ${razorpay_payment_id}). Total paid: ₹${newAmountPaid.toLocaleString('en-IN')}/${targetOrder.price.toLocaleString('en-IN')}.`,
     });
 
-    // Send complete branded payment receipt & invoice slip email to client
-    const sentEmail = await sendPaymentReceiptEmail({
+    await sendMilestonePaymentEmail({
       toEmail: user.email,
       name: user.name,
       orderId: updated[0].id,
       serviceCategory: updated[0].serviceCategory,
-      tier: updated[0].tier,
-      amount: updated[0].price,
+      milestoneNumber: currentMilestone,
+      milestoneTitle,
+      amountPaid: paidThisMilestone,
+      totalOrderPrice: targetOrder.price,
       paymentId: razorpay_payment_id,
-      razorpayOrderId: razorpay_order_id,
+      nextStepDescription: nextStepText,
     });
-    if (!sentEmail) console.error(`❌ Failed to send Razorpay receipt email to ${user.email}`);
 
     return c.json({
       success: true,
-      message: 'Payment verified successfully. Receipt slip delivered to client email.',
+      message: `Milestone ${currentMilestone} verified successfully!`,
       data: updated[0],
     });
   } catch (err: any) {
@@ -355,6 +445,7 @@ clientApp.post('/orders/:id/client-approve', async (c) => {
 
     const updated = await db.update(orders).set({
       status: 'client_approved',
+      payoutStatus: 'pending_admin_approval', // Explicitly regulated by admin
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
 
@@ -362,7 +453,7 @@ clientApp.post('/orders/:id/client-approve', async (c) => {
       orderId,
       senderId: user.id,
       senderRole: 'client',
-      messageText: `[SYSTEM] ✅ Client approved and finalized the project deliverables. Ready for payout authorization.`,
+      messageText: `[SYSTEM] ✅ Client approved and finalized the project deliverables. Payout sent to Admin queue for regulation & disbursement.`,
     });
 
     return c.json({ success: true, message: 'Project approved successfully!', data: updated[0] });
