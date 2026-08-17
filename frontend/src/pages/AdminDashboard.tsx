@@ -98,6 +98,12 @@ export default function AdminDashboard() {
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [relayText, setRelayText] = useState('');
 
+  // ── EDIT PRICE STATE ──────────────────────────────────────────
+  const [editPriceOrder, setEditPriceOrder] = useState<Order | null>(null);
+  const [editPriceInput, setEditPriceInput] = useState<number>(0);
+  const [editTierInput, setEditTierInput] = useState<string>('silver');
+  const [editCategoryInput, setEditCategoryInput] = useState<string>('');
+
   // ── CMS (BLOGS & BUNDLES) MANAGEMENT STATES ────────────────────
   const [blogsList, setBlogsList] = useState<any[]>([]);
   const [bundlesList, setBundlesList] = useState<any[]>([]);
@@ -200,6 +206,28 @@ export default function AdminDashboard() {
       if (!res.ok) throw new Error(data.error || 'QA Action failed');
       setSuccess(`QA action '${qaAction.toUpperCase()}' completed successfully!`);
       setQaOrder(null); setQaComments(''); setQaApprovedLinkInput('');
+      fetchDashboardData();
+    } catch (err: any) { setError(err.message); }
+  };
+
+  const handleSaveOrderPrice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editPriceOrder) return;
+    setError(''); setSuccess('');
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/orders/${editPriceOrder.id}/price`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          price: editPriceInput,
+          tier: editTierInput,
+          serviceCategory: editCategoryInput
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update order price');
+      setSuccess(`Order #${editPriceOrder.id} price updated to ₹${editPriceInput.toLocaleString('en-IN')}!`);
+      setEditPriceOrder(null);
       fetchDashboardData();
     } catch (err: any) { setError(err.message); }
   };
@@ -729,6 +757,7 @@ export default function AdminDashboard() {
                             <td><span className={`fd-status-pill ${o.status}`}>{o.status.toUpperCase()}</span></td>
                             <td style={{ display: 'flex', gap: 6 }}>
                               <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
+                              <button className="ad-pag-btn" onClick={() => { setEditPriceOrder(o); setEditPriceInput(o.price); setEditTierInput(o.tier || 'silver'); setEditCategoryInput(o.serviceCategory); }}>✏️ Price</button>
                               {o.status === 'submitted' && <button className="ad-pag-btn active" onClick={() => setQaOrder(o)}>🛡️ QA</button>}
                               {isMaster && ['assigned', 'submitted', 'qa_approved', 'revision_requested'].includes(o.status) && (
                                 <button className="ad-pag-btn" onClick={() => handleRevokeOrder(o.id)}>Revoke</button>
@@ -1550,6 +1579,43 @@ export default function AdminDashboard() {
             <div className="ad-modal-footer">
               <button className="ad-btn-secondary" onClick={() => { setTeamModalOpen(false); setEditingTeam(null); }}>Cancel</button>
               <button className="ad-btn-primary" form="teamForm" type="submit">Save Mind Details</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* EDIT ORDER PRICE MODAL */}
+      {editPriceOrder && (
+        <div className="ad-modal-overlay" onClick={() => setEditPriceOrder(null)}>
+          <div className="ad-modal" onClick={e => e.stopPropagation()}>
+            <div className="ad-modal-header">
+              <h2>✏️ Customize Order Price — #WN-{editPriceOrder.id}</h2>
+              <button className="ad-modal-close" onClick={() => setEditPriceOrder(null)}>×</button>
+            </div>
+            <div className="ad-modal-body">
+              <form id="editPriceForm" onSubmit={handleSaveOrderPrice}>
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Service Category</label>
+                  <input className="ad-form-input" type="text" required value={editCategoryInput} onChange={e => setEditCategoryInput(e.target.value)} />
+                </div>
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Pricing Tier (Starter / Growth / Enterprise)</label>
+                  <select className="ad-form-select" value={editTierInput} onChange={e => setEditTierInput(e.target.value)}>
+                    <option value="silver">Starter (silver)</option>
+                    <option value="gold">Growth (gold)</option>
+                    <option value="custom">Enterprise (custom)</option>
+                  </select>
+                </div>
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Customized Client Price (₹ INR)</label>
+                  <input className="ad-form-input" type="number" required min={0} value={editPriceInput} onChange={e => setEditPriceInput(Number(e.target.value))} />
+                  <small style={{ fontSize: 11, color: '#666', marginTop: 4, display: 'block' }}>Setting this price according to category requirements will immediately update the client's workspace portal.</small>
+                </div>
+              </form>
+            </div>
+            <div className="ad-modal-footer">
+              <button className="ad-btn-secondary" onClick={() => setEditPriceOrder(null)}>Cancel</button>
+              <button className="ad-btn-primary" form="editPriceForm" type="submit">Save &amp; Sync Price to Client Portal</button>
             </div>
           </div>
         </div>

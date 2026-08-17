@@ -102,9 +102,33 @@ const serviceCategories = [
 ];
 
 const pricingTiers = [
-  { name: 'Starter Creative', price: 14999, tag: 'silver' },
-  { name: 'Growth Tech & Ads', price: 34999, tag: 'gold' },
-  { name: 'Enterprise Premium', price: 79999, tag: 'custom' }
+  {
+    name: 'Starter Creative',
+    tag: 'silver',
+    price: 14999,
+    period: '/ Monthly',
+    badge: 'STARTUPS & SOLO CREATORS',
+    desc: 'Ideal for early-stage startups and creators needing high-impact graphics and short video edits.',
+    features: ['15 Graphic Design Creatives / Month', '4 Edited Video Reels (up to 60s)', 'Basic On-Page SEO / Social Management', 'Turnaround Time: 48 Hours', 'Dedicated Communication']
+  },
+  {
+    name: 'Growth Tech & Ads Suite',
+    tag: 'gold',
+    price: 34999,
+    period: '/ Monthly',
+    badge: 'MOST POPULAR · SCALING BRANDS',
+    desc: 'Our most popular bundle for scaling brands looking for full high-converting website + ads + content.',
+    features: ['30 Graphic Design Creatives & Banners', '10 Viral Video Reels / Shorts', 'Full Meta & Google Ads Campaign Setup', '1 Custom High-Speed React / WP Landing Page', 'Monthly ROI Dashboard & Weekly Strategy Call', 'Priority 24-Hour Turnaround']
+  },
+  {
+    name: 'Enterprise Premium',
+    tag: 'custom',
+    price: 79999,
+    period: '/ Monthly',
+    badge: 'ENTERPRISES & HIGH-SCALE BRANDS',
+    desc: 'All-inclusive digital powerhouse for established brands needing custom software, 3D/VFX, and AI automation.',
+    features: ['Unlimited Graphic & Motion Graphics Requests', 'Full Stack Software / Mobile App / AI Bot Build', '3D Product Renders & VFX Ads Production', 'Omnichannel Digital Marketing & Lead Gen', 'Dedicated Creative Director + Lead Developer', '1-on-1 Direct Access to Leadership']
+  }
 ];
 
 const CAT_META: Record<string, { icon: string; label: string; subs: string[] }> = {
@@ -1154,14 +1178,45 @@ export default function ClientDashboard() {
                   </select>
                 </div>
                 <div className="cd-form-row">
-                  <label className="cd-form-label">Pricing Tier</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginTop: 4 }}>
-                    {pricingTiers.map(p => (
-                      <button key={p.tag} type="button" style={{ padding: '12px 8px', borderRadius: 8, border: newProjTier === p.tag ? '2px solid #56c41a' : '1px solid #e8e7e0', background: newProjTier === p.tag ? '#f0fce8' : '#fafaf8', fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }} onClick={() => handleTierChange(p.tag)}>
-                        <div style={{ fontSize: 11, color: '#888' }}>{p.name}</div>
-                        <div style={{ fontSize: 14, marginTop: 3 }}>₹{p.price.toLocaleString()}</div>
-                      </button>
-                    ))}
+                  <label className="cd-form-label">Select Package / Pricing Tier</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 6 }}>
+                    {pricingTiers.map(p => {
+                      const isSelected = newProjTier === p.tag;
+                      return (
+                        <div
+                          key={p.tag}
+                          onClick={() => handleTierChange(p.tag)}
+                          style={{
+                            padding: 14,
+                            borderRadius: 10,
+                            border: isSelected ? '2px solid #56c41a' : '1px solid #e0e0d8',
+                            background: isSelected ? '#f2fceb' : '#ffffff',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            boxShadow: isSelected ? '0 4px 12px rgba(86,196,26,0.15)' : 'none',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'space-between'
+                          }}
+                        >
+                          <div>
+                            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.5px', background: isSelected ? '#56c41a' : '#eaeaea', color: isSelected ? '#fff' : '#555', padding: '2px 6px', borderRadius: 4, display: 'inline-block', marginBottom: 6 }}>
+                              {p.badge}
+                            </span>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#111' }}>{p.name}</div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: '#56c41a', marginTop: 4 }}>
+                              ₹{p.price.toLocaleString('en-IN')} <span style={{ fontSize: 11, fontWeight: 400, color: '#666' }}>{p.period}</span>
+                            </div>
+                            <p style={{ fontSize: 11, color: '#555', marginTop: 6, lineHeight: '1.4' }}>{p.desc}</p>
+                          </div>
+                          <ul style={{ paddingLeft: 14, marginTop: 10, fontSize: 10, color: '#444', borderTop: '1px solid #e8e8e0', paddingTop: 8, margin: '10px 0 0 0', listStyleType: 'none' }}>
+                            {p.features.slice(0, 3).map((f, i) => (
+                              <li key={i} style={{ marginBottom: 3 }}>✓ {f}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="cd-form-row">

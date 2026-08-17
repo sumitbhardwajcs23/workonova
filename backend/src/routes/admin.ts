@@ -162,6 +162,39 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin']), async (c) => {
   }
 });
 
+// ── PATCH Update Order Price & Category/Tier ──
+adminApp.patch('/orders/:id/price', roleGuard(['admin', 'qa_admin']), async (c) => {
+  try {
+    const orderId = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const price = Number(body.price);
+    const tier = body.tier ? sanitise(body.tier) : undefined;
+    const serviceCategory = body.serviceCategory ? sanitise(body.serviceCategory) : undefined;
+
+    if (isNaN(price) || price < 0) return c.json({ error: 'Valid price is required.' }, 400);
+
+    const updated = await db.update(orders).set({
+      price,
+      tier: tier || undefined,
+      serviceCategory: serviceCategory || undefined,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(orders.id, orderId)).returning();
+
+    if (updated.length === 0) return c.json({ error: 'Order not found.' }, 404);
+
+    await db.insert(messages).values({
+      orderId,
+      senderId: 0,
+      senderRole: 'admin',
+      messageText: `[SYSTEM] Admin customized order price to ₹${price.toLocaleString('en-IN')}${tier ? ` (${tier.toUpperCase()} tier)` : ''}.`
+    });
+
+    return c.json({ data: updated[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // ── POST QA Gateway ──
 adminApp.post('/orders/:id/qa', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
