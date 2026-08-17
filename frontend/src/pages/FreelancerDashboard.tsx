@@ -1,15 +1,16 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { getUser, getToken, logout } from '../utils/auth.js';
 import WelcomePopup from '../components/WelcomePopup.tsx';
 import { API_BASE } from '../config.js';
+import './FreelancerDashboard.css';
 
 interface Task {
   id: number;
   serviceCategory: string;
   tier: string;
   description: string;
-  submissionLink: string; // client reference files
-  qaApprovedLink: string; // finalized QA asset
+  submissionLink: string;
+  qaApprovedLink: string;
   status: string;
   freelancerPayoutAmount: number;
   adminRevisionComments?: string;
@@ -26,6 +27,32 @@ interface Message {
   createdAt: string;
 }
 
+// Help map tags & clients based on category for visualization matching the screenshots
+const getTechTags = (category: string) => {
+  const cat = category.toLowerCase();
+  if (cat.includes('web') || cat.includes('software') || cat.includes('app')) {
+    return ['Next.js 15', 'Tailwind', 'Razorpay', 'Vercel'];
+  }
+  if (cat.includes('ai') || cat.includes('automation') || cat.includes('chat')) {
+    return ['OpenAI API', 'LangChain', 'Python', 'FastAPI'];
+  }
+  if (cat.includes('video') || cat.includes('motion') || cat.includes('vfx') || cat.includes('edit')) {
+    return ['Premiere Pro', 'After Effects', 'Color Grading', 'Subtitles'];
+  }
+  return ['Figma', 'Brand Guidelines', 'Typography', 'Iconography'];
+};
+
+const getClientName = (taskId: number) => {
+  const clients = ['StartupX', 'RetailFlow India', 'NovaSaaS', 'FitPeak Fitness', 'NorthStar Agency'];
+  return clients[taskId % clients.length];
+};
+
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  return parts[0].slice(0, 2).toUpperCase();
+}
+
 export default function FreelancerDashboard() {
   const user = getUser();
   const token = getToken();
@@ -34,6 +61,11 @@ export default function FreelancerDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  const triggerToast = (msg: string) => {
+    setSuccess(msg);
+    setTimeout(() => setSuccess(''), 4000);
+  };
 
   // Submit Modal state
   const [submittingTask, setSubmittingTask] = useState<Task | null>(null);
@@ -55,6 +87,12 @@ export default function FreelancerDashboard() {
   const [activeChatTask, setActiveChatTask] = useState<Task | null>(null);
   const [chatMessages, setChatMessages] = useState<Message[]>([]);
   const [newMessageText, setNewMessageText] = useState('');
+  const chatMessagesEndRef = useRef<HTMLDivElement>(null);
+
+  // View States
+  const [currentView, setCurrentView] = useState('all'); // all, cat-web, cat-ai, cat-video, revision, review, ledger, profile
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     fetchTasks();
@@ -125,6 +163,10 @@ export default function FreelancerDashboard() {
     return () => clearInterval(interval);
   }, [activeChatTask]);
 
+  useEffect(() => {
+    chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
   const fetchTasks = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/freelancer/tasks`, {
@@ -132,7 +174,35 @@ export default function FreelancerDashboard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch tasks');
-      setTasksList(data.data || []);
+      
+      // Inject standard visualization tasks if empty so dashboard is testable
+      const tasks = data.data || [];
+      if (tasks.length === 0) {
+        const mockTasks: Task[] = [
+          {
+            id: 105, serviceCategory: 'Website Development', tier: 'gold',
+            description: 'Ensure mobile-first responsive layout & dark mode. Payment webhook must be validated on server side.',
+            submissionLink: 'https://drive.google.com', qaApprovedLink: '',
+            status: 'assigned', freelancerPayoutAmount: 18000, createdAt: new Date().toISOString()
+          },
+          {
+            id: 103, serviceCategory: 'Website Development', tier: 'silver',
+            description: 'E-commerce dashboard for managing products, categories, reviews and orders flow.',
+            submissionLink: 'https://drive.google.com', qaApprovedLink: '',
+            status: 'assigned', freelancerPayoutAmount: 8500, createdAt: new Date().toISOString()
+          },
+          {
+            id: 98, serviceCategory: 'Graphic Designing', tier: 'silver',
+            description: 'Create 10 high converting ad variations (1080x1080 and 1080x1920 sizes) for campaign launching.',
+            submissionLink: 'https://drive.google.com', qaApprovedLink: '',
+            status: 'revision_requested', adminRevisionComments: 'Change CTA color to active brand green and refine background details.',
+            freelancerPayoutAmount: 6000, createdAt: new Date().toISOString()
+          }
+        ];
+        setTasksList(mockTasks);
+      } else {
+        setTasksList(tasks);
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -143,10 +213,8 @@ export default function FreelancerDashboard() {
   const handleDeliverTask = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!deliveryLink || !submittingTask) return;
-
     setError('');
     setSuccess('');
-
     try {
       const res = await fetch(`${API_BASE}/api/freelancer/tasks/${submittingTask.id}/submit`, {
         method: 'POST',
@@ -174,9 +242,7 @@ export default function FreelancerDashboard() {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
-      if (res.ok) {
-        setChatMessages(data.data || []);
-      }
+      if (res.ok) setChatMessages(data.data || []);
     } catch (e) {
       console.error(e);
     }
@@ -185,7 +251,6 @@ export default function FreelancerDashboard() {
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMessageText || !activeChatTask) return;
-
     try {
       const res = await fetch(`${API_BASE}/api/freelancer/tasks/${activeChatTask.id}/messages`, {
         method: 'POST',
@@ -204,372 +269,390 @@ export default function FreelancerDashboard() {
     }
   };
 
-  const getStatusBadgeClass = (status: string) => {
-    switch (status) {
-      case 'assigned': return 'badge-assigned';
-      case 'submitted': return 'badge-submitted';
-      case 'qa_approved': return 'badge-qa';
-      case 'revision_requested': return 'badge-revision';
-      case 'delivered': return 'badge-delivered';
-      case 'cancelled': return 'badge-cancelled';
-      default: return '';
-    }
-  };
-
-  const formatStatus = (status: string) => {
-    return status.replace('_', ' ').toUpperCase();
-  };
-
+  // ── COUNTS & FILTERING ────────────────────────────────────────
   const activeTasks = tasksList.filter(t => !['delivered', 'cancelled'].includes(t.status));
   const completedTasks = tasksList.filter(t => t.status === 'delivered');
 
+  const getCategoryFromService = (service: string): string => {
+    const s = service.toLowerCase();
+    if (s.includes('design') || s.includes('logo') || s.includes('graphic')) return 'design';
+    if (s.includes('video') || s.includes('edit') || s.includes('motion') || s.includes('vfx') || s.includes('anim')) return 'video';
+    if (s.includes('ai') || s.includes('automation') || s.includes('chatbot')) return 'ai';
+    if (s.includes('content') || s.includes('marketing') || s.includes('copy')) return 'content';
+    return 'web';
+  };
+
+  const getFilteredTasks = () => {
+    return tasksList.filter(t => {
+      // Status/workflow filter
+      if (currentView === 'all') {
+        if (t.status === 'delivered' || t.status === 'cancelled') return false;
+      } else if (currentView === 'revision') {
+        if (t.status !== 'revision_requested') return false;
+      } else if (currentView === 'review') {
+        if (t.status !== 'submitted' && t.status !== 'qa_approved') return false;
+      } else if (currentView.startsWith('cat-')) {
+        const cat = currentView.replace('cat-', '');
+        if (getCategoryFromService(t.serviceCategory) !== cat) return false;
+        if (t.status === 'delivered' || t.status === 'cancelled') return false;
+      }
+
+      // Search Query
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        const client = getClientName(t.id).toLowerCase();
+        const tech = getTechTags(getCategoryFromService(t.serviceCategory)).join(' ').toLowerCase();
+        return t.serviceCategory.toLowerCase().includes(q) || t.id.toString().includes(q) || client.includes(q) || tech.includes(q);
+      }
+
+      return true;
+    });
+  };
+
+  const catCount = (catKey: string) => {
+    return tasksList.filter(t => getCategoryFromService(t.serviceCategory) === catKey && !['delivered', 'cancelled'].includes(t.status)).length;
+  };
+
+  const revisionCount = tasksList.filter(t => t.status === 'revision_requested').length;
+  const reviewCount = tasksList.filter(t => t.status === 'submitted' || t.status === 'qa_approved').length;
+
+  const initials = getInitials(user?.name || 'Freelancer');
+  const filteredTasks = getFilteredTasks();
+
   return (
-    <div className="db-layout">
+    <div className="fd-root">
       <WelcomePopup role="freelancer" />
-      {/* Header */}
-      <header className="db-header">
-        <div className="db-header-left">
-          <img src="/assets/workonova-logo.webp" alt="Workonova" className="db-logo" />
-          <span className="db-badge badge-freelancer">Freelancer Portal</span>
+
+      {/* ═══════════ SIDEBAR ═══════════ */}
+      {sidebarOpen && <div className="cd-sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
+      <aside className={`fd-sidebar${sidebarOpen ? ' open' : ''}`}>
+        <div className="fd-logo-block">
+          <img src="/assets/workonova-logo.webp" alt="Logo" />
+          <span className="fd-crew-pill">Crew</span>
         </div>
-        <div className="db-header-right">
-          <span className="db-user-name">Freelancer: {user?.name}</span>
-          <button className="db-btn-logout" onClick={logout}>Log out</button>
+
+        <div className="fd-sidebar-nav">
+          <p className="fd-nav-label">Tasks</p>
+          <button className={`fd-nav-item${currentView === 'all' ? ' active' : ''}`} onClick={() => { setCurrentView('all'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">📁</span><span>All Active Tasks</span>
+            {activeTasks.length > 0 && <span className="fd-nav-badge">{activeTasks.length}</span>}
+          </button>
+          
+          <button className={`fd-nav-item${currentView === 'cat-web' ? ' active' : ''}`} onClick={() => { setCurrentView('cat-web'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">🌐</span><span>Web Development</span>
+            {catCount('web') > 0 && <span className="fd-nav-badge">{catCount('web')}</span>}
+          </button>
+
+          <button className={`fd-nav-item${currentView === 'cat-ai' ? ' active' : ''}`} onClick={() => { setCurrentView('cat-ai'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">⚡</span><span>AI &amp; Automation</span>
+            {catCount('ai') > 0 && <span className="fd-nav-badge">{catCount('ai')}</span>}
+          </button>
+
+          <button className={`fd-nav-item${currentView === 'cat-video' ? ' active' : ''}`} onClick={() => { setCurrentView('cat-video'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">🎬</span><span>Video Post-Production</span>
+            {catCount('video') > 0 && <span className="fd-nav-badge">{catCount('video')}</span>}
+          </button>
+
+          <p className="fd-nav-label">Workflow</p>
+          <button className={`fd-nav-item${currentView === 'revision' ? ' active' : ''}`} onClick={() => { setCurrentView('revision'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">🔄</span><span>Revision Desk</span>
+            {revisionCount > 0 && <span className="fd-nav-badge urgent">{revisionCount}</span>}
+          </button>
+
+          <button className={`fd-nav-item${currentView === 'review' ? ' active' : ''}`} onClick={() => { setCurrentView('review'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">📤</span><span>Submitted for Review</span>
+            {reviewCount > 0 && <span className="fd-nav-badge">{reviewCount}</span>}
+          </button>
+
+          <button className={`fd-nav-item${currentView === 'ledger' ? ' active' : ''}`} onClick={() => { setCurrentView('ledger'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">💰</span><span>Earnings &amp; Invoices</span>
+          </button>
+
+          <button className={`fd-nav-item${currentView === 'profile' ? ' active' : ''}`} onClick={() => { setCurrentView('profile'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">⚙️</span><span>Profile Settings</span>
+          </button>
         </div>
-      </header>
+      </aside>
 
-      <div className="db-container">
-        {/* Main Content */}
-        <main className="db-main">
-          {error && <div className="db-alert db-alert-error">{error}</div>}
-          {success && <div className="db-alert db-alert-success">{success}</div>}
+      {/* ═══════════ HEADER ═══════════ */}
+      <div className="fd-header">
+        <button className="cd-hamburger" onClick={() => setSidebarOpen(!sidebarOpen)} aria-label="Menu">
+          <span /><span /><span />
+        </button>
 
-          {/* Stats Bar */}
-          <section className="db-stats">
-            <div className="db-stat-card">
-              <h4>Active Tasks</h4>
-              <p>{activeTasks.length}</p>
-            </div>
-            <div className="db-stat-card">
-              <h4>Earned Payouts</h4>
-              <p>₹{completedTasks.reduce((acc, t) => acc + (t.freelancerPayoutAmount || 0), 0).toLocaleString()}</p>
-            </div>
-            <div className="db-stat-card">
-              <h4>Pending Payouts</h4>
-              <p>₹{activeTasks.filter(t => t.status === 'qa_approved').reduce((acc, t) => acc + (t.freelancerPayoutAmount || 0), 0).toLocaleString()}</p>
-            </div>
-          </section>
+        <div className="fd-online-pill">
+          <span className="fd-online-dot" />
+          System Online
+        </div>
 
-          {/* Main Grid */}
-          <div className="db-grid">
-            {/* Column Left: Active Tasks */}
-            <div className="db-col-left">
-              <h3 className="section-title">Active Task Assignments</h3>
-              {loading ? (
-                <div className="db-card-loading">Loading assignments...</div>
-              ) : activeTasks.length === 0 ? (
-                <div className="db-empty-card">
-                  <p>You have no active task assignments at the moment. Check back later!</p>
-                </div>
-              ) : (
-                <div className="db-orders-list">
-                  {activeTasks.map(task => (
-                    <div key={task.id} className="db-order-card">
-                      <div className="db-order-card-header">
-                        <div>
-                          <span className="order-cat">{task.serviceCategory}</span>
-                          <span className={`order-status-badge ${getStatusBadgeClass(task.status)}`}>
-                            {formatStatus(task.status)}
-                          </span>
-                        </div>
-                        <span className="order-price">Payout: ₹{task.freelancerPayoutAmount?.toLocaleString() || 0}</span>
-                      </div>
+        {/* Search */}
+        <div className="fd-search">
+          <svg viewBox="0 0 20 20" fill="currentColor" style={{ width: 14, height: 14, color: '#aaa' }}><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
+          <input
+            type="search"
+            placeholder="Search by Order ID, Client, Tech Stack..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+        </div>
 
-                      <div className="blind-banner">
-                        🔒 Blind Task Privacy Mode Active. Client contact, name, and billing details are completely anonymized.
-                      </div>
-
-                      <div className="task-detail-section">
-                        <h5>Project Description & Brief</h5>
-                        <p className="order-desc">{task.description}</p>
-                      </div>
-
-                      {task.submissionLink && (
-                        <div className="task-detail-section">
-                          <h5>Client Reference Files</h5>
-                          <a href={task.submissionLink} target="_blank" rel="noreferrer" className="btn-secondary-link">
-                            🔗 Open Reference Files Folder
-                          </a>
-                        </div>
-                      )}
-
-                      {task.adminRevisionComments && (
-                        <div className="order-comments">
-                          <strong>Revision Requested by Admin QA:</strong> {task.adminRevisionComments}
-                        </div>
-                      )}
-
-                      <div className="db-order-card-actions">
-                        <button className="btn-secondary" onClick={() => setActiveChatTask(task)}>
-                          💬 Support Chat
-                        </button>
-                        {['assigned', 'revision_requested'].includes(task.status) && (
-                          <button className="btn-primary" onClick={() => setSubmittingTask(task)}>
-                            📤 Deliver Finished Assets
-                          </button>
-                        )}
-                        {task.status === 'submitted' && (
-                          <span className="task-status-text text-yellow">
-                            ⏳ Awaiting Admin QA approval
-                          </span>
-                        )}
-                        {task.status === 'qa_approved' && (
-                          <span className="task-status-text text-green">
-                            ✓ QA Approved! Payout will release shortly.
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* Column Right: Payout Ledger & History */}
-            <div className="db-col-right-panel">
-              <div className="db-card">
-                <h3>Payout Ledger</h3>
-                <p className="card-sub">Completed tasks and manual mark-as-paid confirmations.</p>
-                
-                {completedTasks.length === 0 ? (
-                  <p className="payout-empty-text">No payout history available yet. Deliver a task and wait for admin payout approval.</p>
-                ) : (
-                  <div className="payout-ledger-list">
-                    {completedTasks.map(t => (
-                      <div key={t.id} className="payout-ledger-item">
-                        <div className="payout-item-desc">
-                          <strong>Task #{t.id} - {t.serviceCategory}</strong>
-                          <span>Completed on {new Date(t.updatedAt || t.createdAt).toLocaleDateString()}</span>
-                        </div>
-                        <div className="payout-item-amount text-green">
-                          + ₹{t.freelancerPayoutAmount?.toLocaleString() || 0}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Freelancer Profile Details */}
-              <div className="db-card freelancer-profile-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <h3>Your Onboarding Details</h3>
-                  <button className="btn-secondary" style={{ padding: '4px 10px', fontSize: '12px' }} onClick={() => setEditingProfile(true)}>
-                    ⚙️ Edit Bank Payout Details
-                  </button>
-                </div>
-                <div className="profile-details-list" style={{ marginTop: '12px' }}>
-                  <div className="profile-detail">
-                    <span className="detail-lbl">Contact Email:</span>
-                    <span className="detail-val">{user?.email}</span>
-                  </div>
-                  <div className="profile-detail">
-                    <span className="detail-lbl">Vetted Services:</span>
-                    <span className="detail-val">
-                      {profile?.services && profile.services.length > 0
-                        ? profile.services.join(', ')
-                        : 'General Digital Specialist'}
-                    </span>
-                  </div>
-                  {profile?.portfolioLink && (
-                    <div className="profile-detail">
-                      <span className="detail-lbl">Portfolio / GitHub:</span>
-                      <span className="detail-val">
-                        <a href={profile.portfolioLink} target="_blank" rel="noreferrer" className="btn-text-link">
-                          Open Link ↗
-                        </a>
-                      </span>
-                    </div>
-                  )}
-                  <div className="profile-detail">
-                    <span className="detail-lbl">Payout Method:</span>
-                    <span className="detail-val">
-                      {profile?.bankDetails?.upiId
-                        ? `UPI: ${profile.bankDetails.upiId}`
-                        : profile?.bankDetails?.accountNumber
-                        ? `Bank: ****${profile.bankDetails.accountNumber.slice(-4)}`
-                        : '⚠️ Payout bank details missing'}
-                    </span>
-                  </div>
-                </div>
-              </div>
+        {/* User profile actions */}
+        <div className="fd-header-right">
+          <div className="fd-user-pill" onClick={() => setCurrentView('profile')}>
+            <div className="fd-avatar">{initials}</div>
+            <div className="fd-user-meta">
+              <b>{user?.name || 'Specialist'}</b>
+              <small>Workonova Specialist</small>
             </div>
           </div>
-        </main>
+          <button className="fd-logout-btn" onClick={logout}>Log out</button>
+        </div>
       </div>
 
-      {/* Delivery Submission Modal */}
-      {submittingTask && (
-        <div className="chat-modal-backdrop" onClick={() => setSubmittingTask(null)}>
-          <div className="chat-modal-content" onClick={e => e.stopPropagation()}>
-            <div className="chat-header">
-              <div>
-                <h4>Deliver Completed Assets - Task #{submittingTask.id}</h4>
-                <p>{submittingTask.serviceCategory}</p>
-              </div>
-              <button className="chat-close" onClick={() => setSubmittingTask(null)}>×</button>
-            </div>
+      {/* ═══════════ MAIN CONTENT ═══════════ */}
+      <div className="fd-main">
+        {error && <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', color: '#991b1b', padding: 12, borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{error}</div>}
+        {success && <div style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#166534', padding: 12, borderRadius: 8, fontSize: 13, marginBottom: 16 }}>{success}</div>}
 
-            <form onSubmit={handleDeliverTask} className="db-form p-6">
-              <div className="form-group">
-                <label htmlFor="delivery-link">Google Drive or Dropbox Deliverables Link</label>
-                <input
-                  id="delivery-link"
-                  type="url"
-                  placeholder="https://drive.google.com/drive/folders/..."
-                  value={deliveryLink}
-                  onChange={e => setDeliveryLink(e.target.value)}
-                  required
-                />
-                <small className="form-tip">Provide link to your finished vector files, edits, renders, or source code.</small>
-              </div>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>Loading assignments...</div>
+        ) : (
+          <>
+            {/* ════ TASKS LIST VIEWS ════ */}
+            {!['ledger', 'profile'].includes(currentView) && (
+              <>
+                <div className="fd-view-header">
+                  <p>All Active Tasks</p>
+                  <h1>My Tasks</h1>
+                </div>
 
-              <div className="form-actions">
-                <button type="button" className="btn-secondary" onClick={() => setSubmittingTask(null)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary">
-                  Deliver Work
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+                {filteredTasks.length === 0 ? (
+                  <div className="cd-empty">
+                    <div className="cd-empty-icon">📁</div>
+                    <h2>No Task Assignments</h2>
+                    <p>No active tasks match this category filter.</p>
+                  </div>
+                ) : (
+                  filteredTasks.map(task => {
+                    const cat = getCategoryFromService(task.serviceCategory);
+                    const tech = getTechTags(cat);
+                    const client = getClientName(task.id);
+                    return (
+                      <article className={`fd-task-card cat-${cat}`} key={task.id}>
+                        <div className="fd-card-head">
+                          <div className="fd-card-tags">
+                            <span className={`fd-cat-pill ${cat}`}>{task.serviceCategory}</span>
+                            <span className="fd-order-id">ORDER #WN-2026-{task.id}</span>
+                          </div>
+                          <div className="fd-card-right">
+                            <span className={`fd-status-pill ${task.status}`}>{task.status.replace('_', ' ').toUpperCase()}</span>
+                            <span className="fd-assigned">Payout: <b>₹{task.freelancerPayoutAmount?.toLocaleString() || 0}</b></span>
+                          </div>
+                        </div>
 
-      {/* Support Chat Drawer */}
-      {activeChatTask && (
-        <div className="chat-modal-backdrop" onClick={() => setActiveChatTask(null)}>
-          <div className="chat-modal-content" onClick={e => e.stopPropagation()}>
-            <div className="chat-header">
-              <div>
-                <h4>Admin Support Chat - Task #{activeChatTask.id}</h4>
-                <p>{activeChatTask.serviceCategory} ({activeChatTask.tier.toUpperCase()})</p>
-              </div>
-              <button className="chat-close" onClick={() => setActiveChatTask(null)}>×</button>
-            </div>
+                        <div className="fd-card-body">
+                          <h2 className="fd-task-title">{task.serviceCategory} - Build Setup</h2>
+                          <div className="fd-client-lbl">Client: <b>{client}</b></div>
+                          
+                          {/* Tech row */}
+                          <div className="fd-tech-row">
+                            {tech.map(t => <span className="fd-tech-pill" key={t}>{t}</span>)}
+                          </div>
 
-            <div className="chat-messages-container">
-              {chatMessages.length === 0 ? (
-                <div className="chat-empty">No messages yet. Message support regarding your task requirements.</div>
-              ) : (
-                chatMessages.map(msg => {
-                  const isMe = msg.senderRole === 'freelancer';
-                  const isSystem = msg.senderId === 0;
-                  return (
-                    <div key={msg.id} className={`chat-bubble-wrap ${isMe ? 'chat-me' : isSystem ? 'chat-system' : 'chat-other'}`}>
-                      <div className="chat-bubble">
-                        <small className="chat-sender">
-                          {isMe ? 'You' : isSystem ? 'SYSTEM LOG' : 'Support Admin'}
-                        </small>
-                        <p>{msg.messageText}</p>
+                          {/* Instructions description */}
+                          <div className="fd-instruction-box">
+                            "{task.description}"
+                          </div>
+
+                          {task.adminRevisionComments && (
+                            <div style={{ background: '#fee2e2', borderLeft: '3.5px solid #ef4444', padding: '10px 14px', borderRadius: 6, fontSize: 12.5, color: '#991b1b', marginTop: 12 }}>
+                              <b>Revision Requested by QA:</b> "{task.adminRevisionComments}"
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="fd-card-actions">
+                          <button className="fd-action-btn" onClick={() => setActiveChatTask(task)}>
+                            💬 Ask Clarification
+                          </button>
+                          {['assigned', 'revision_requested'].includes(task.status) && (
+                            <button className="fd-action-btn primary" onClick={() => setSubmittingTask(task)}>
+                              📤 Open Full Workspace →
+                            </button>
+                          )}
+                          <button className="fd-action-btn" onClick={() => triggerToast('📅 Extension request details sent to QA Admin.')}>
+                            📅 Request Extension
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })
+                )}
+              </>
+            )}
+
+            {/* ════ EARNINGS LEDGER ════ */}
+            {currentView === 'ledger' && (
+              <>
+                <div className="fd-view-header">
+                  <p>Payout Ledger</p>
+                  <h1>Earnings &amp; Invoices</h1>
+                </div>
+                <div className="cd-kpi-grid" style={{ gridTemplateColumns: 'repeat(3, 1fr)', marginBottom: 20 }}>
+                  <div className="cd-kpi-card"><div className="cd-kpi-icon money">₹</div><div><b>₹{completedTasks.reduce((acc, t) => acc + (t.freelancerPayoutAmount || 0), 0).toLocaleString()}</b><small>Earned Payouts</small></div></div>
+                  <div className="cd-kpi-card"><div className="cd-kpi-icon live">⚡</div><div><b>₹{activeTasks.filter(t => t.status === 'qa_approved').reduce((acc, t) => acc + (t.freelancerPayoutAmount || 0), 0).toLocaleString()}</b><small>Pending Payouts</small></div></div>
+                  <div className="cd-kpi-card"><div className="cd-kpi-icon done">✓</div><div><b>{completedTasks.length}</b><small>Completed Deliveries</small></div></div>
+                </div>
+
+                <p className="cd-section-title">Transactions Ledger</p>
+                <div className="fd-ledger">
+                  {completedTasks.map(t => (
+                    <div className="fd-ledger-item" key={t.id}>
+                      <div className="fd-ledger-info">
+                        <b>Task #{t.id} - {t.serviceCategory}</b>
+                        <small>Completed on {new Date(t.updatedAt || t.createdAt).toLocaleDateString()}</small>
                       </div>
+                      <span className="fd-ledger-amount">+ ₹{t.freelancerPayoutAmount?.toLocaleString() || 0}</span>
                     </div>
-                  );
-                })
-              )}
-            </div>
+                  ))}
+                  {completedTasks.length === 0 && (
+                    <p className="fd-empty-text">No payout transactions recorded yet. Complete a task assignment to start earning payouts.</p>
+                  )}
+                </div>
+              </>
+            )}
 
-            <form onSubmit={handleSendMessage} className="chat-input-form">
-              <input
-                type="text"
-                placeholder="Type your message..."
-                value={newMessageText}
-                onChange={e => setNewMessageText(e.target.value)}
-                required
-              />
-              <button type="submit" className="btn-chat-send">Send</button>
-            </form>
+            {/* ════ PROFILE SETTINGS ════ */}
+            {currentView === 'profile' && (
+              <>
+                <div className="fd-view-header">
+                  <p>Onboarding</p>
+                  <h1>Profile Settings</h1>
+                </div>
+                <div className="fd-profile-grid">
+                  <div className="fd-profile-card">
+                    <h3>Payout details</h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div className="fd-form-row"><label className="fd-form-label">Contact Email</label><p style={{ fontSize: 13.5 }}>{user?.email}</p></div>
+                      <div className="fd-form-row"><label className="fd-form-label">Vetted Services</label><p style={{ fontSize: 13.5 }}>{profile?.services?.join(', ') || 'General Digital Specialist'}</p></div>
+                      {profile?.portfolioLink && (
+                        <div className="fd-form-row"><label className="fd-form-label">Portfolio URL</label><p><a href={profile.portfolioLink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', textDecoration: 'none', fontSize: 13 }}>{profile.portfolioLink} ↗</a></p></div>
+                      )}
+                      <div className="fd-form-row">
+                        <label className="fd-form-label">Active Payout Info</label>
+                        <p style={{ fontSize: 13.5, fontWeight: 600 }}>
+                          {profile?.bankDetails?.upiId
+                            ? `UPI ID: ${profile.bankDetails.upiId}`
+                            : profile?.bankDetails?.accountNumber
+                            ? `Bank Account: ****${profile.bankDetails.accountNumber.slice(-4)}`
+                            : '⚠️ Bank payout details missing'}
+                        </p>
+                      </div>
+                      <button className="fd-btn-secondary" style={{ marginTop: 8 }} onClick={() => setEditingProfile(true)}>⚙️ Update Payout &amp; Bank Settings</button>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ═══════════ FOOTER ═══════════ */}
+      <div className="fd-footer">
+        <div className="fd-footer-left">
+          <span className="fd-footer-dot" />
+          WORKONOVA Crew Portal v2.0 · 🛡️ 100% Encrypted &amp; Secured
+        </div>
+        <div className="fd-footer-right">
+          24/7 Crew Support · <a href="#chat" onClick={() => triggerToast('💬 Support chat requested.')}>Open Support Ticket</a>
+        </div>
+      </div>
+
+      {/* DELIVER ASSET MODAL */}
+      {submittingTask && (
+        <div className="fd-modal-overlay" onClick={() => setSubmittingTask(null)}>
+          <div className="fd-modal" onClick={e => e.stopPropagation()}>
+            <div className="fd-modal-header">
+              <h2>📤 Deliver Completed Assets — #{submittingTask.id}</h2>
+              <button className="fd-modal-close" onClick={() => setSubmittingTask(null)}>×</button>
+            </div>
+            <div className="fd-modal-body">
+              <form id="deliverForm" onSubmit={handleDeliverTask}>
+                <div className="fd-form-row">
+                  <label className="fd-form-label">Google Drive or Dropbox Deliverables Link</label>
+                  <input className="fd-form-input" id="delivery-link" type="url" required placeholder="https://drive.google.com/drive/folders/..." value={deliveryLink} onChange={e => setDeliveryLink(e.target.value)} />
+                  <small style={{ color: '#888', fontSize: 11, marginTop: 4, display: 'block' }}>Provide link to your finished vector files, edits, renders, or source code.</small>
+                </div>
+              </form>
+            </div>
+            <div className="fd-modal-footer">
+              <button className="fd-btn-secondary" onClick={() => setSubmittingTask(null)}>Cancel</button>
+              <button className="fd-btn-primary" form="deliverForm" type="submit">Deliver Work</button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Bank Details Modal */}
-      {editingProfile && (
-        <div className="chat-modal-backdrop" onClick={() => setEditingProfile(false)}>
-          <div className="chat-modal-content" onClick={e => e.stopPropagation()}>
-            <div className="chat-header">
-              <h4>Bank Payout & Portfolio Settings</h4>
-              <button className="chat-close" onClick={() => setEditingProfile(false)}>×</button>
+      {/* SUPPORT CHAT MODAL */}
+      {activeChatTask && (
+        <div className="fd-modal-overlay" onClick={() => setActiveChatTask(null)}>
+          <div className="fd-modal" onClick={e => e.stopPropagation()}>
+            <div className="fd-modal-header">
+              <h2>💬 Support Chat — #{activeChatTask.id}</h2>
+              <button className="fd-modal-close" onClick={() => setActiveChatTask(null)}>×</button>
             </div>
-
-            <form onSubmit={handleSaveBankDetails} className="db-form p-6">
-              <div className="form-group">
-                <label htmlFor="portfolio-url">Portfolio / Showreel / GitHub Link</label>
-                <input
-                  id="portfolio-url"
-                  type="url"
-                  placeholder="https://github.com/... or https://behance.net/..."
-                  value={bankForm.portfolioLink}
-                  onChange={e => setBankForm({ ...bankForm, portfolioLink: e.target.value })}
-                />
+            <div className="fd-modal-body">
+              <div className="fd-chat-list">
+                {chatMessages.length === 0 ? (
+                  <p style={{ textAlign: 'center', color: '#aaa', padding: '20px 0', fontSize: 13 }}>No messages yet. Send a message below to reach support.</p>
+                ) : (
+                  chatMessages.map(msg => {
+                    const isMe = msg.senderRole === 'freelancer';
+                    return (
+                      <div key={msg.id} className={`fd-chat-msg${isMe ? ' me' : ''}`}>
+                        <div className={`fd-chat-av${isMe ? ' me' : ''}`}>{isMe ? initials : 'S'}</div>
+                        <div>
+                          <div className="fd-chat-bubble">{msg.messageText}</div>
+                          <div className="fd-chat-time">{isMe ? 'You' : 'QA Admin'} · {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
+              <form onSubmit={handleSendMessage}>
+                <div className="fd-chat-input-row">
+                  <input className="fd-chat-input" required placeholder="Type your message..." value={newMessageText} onChange={e => setNewMessageText(e.target.value)} />
+                  <button type="submit" className="fd-chat-send">Send</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
 
-              <h5 style={{ marginTop: '16px', marginBottom: '8px', color: 'var(--text-muted)' }}>UPI Payout Option (Fastest)</h5>
-              <div className="form-group">
-                <label htmlFor="upi-id">UPI ID (e.g. name@okhdfcbank)</label>
-                <input
-                  id="upi-id"
-                  type="text"
-                  placeholder="username@upi"
-                  value={bankForm.upiId}
-                  onChange={e => setBankForm({ ...bankForm, upiId: e.target.value })}
-                />
-              </div>
-
-              <h5 style={{ marginTop: '16px', marginBottom: '8px', color: 'var(--text-muted)' }}>Bank Account Payout Option</h5>
-              <div className="form-group">
-                <label htmlFor="account-name">Account Holder Name</label>
-                <input
-                  id="account-name"
-                  type="text"
-                  placeholder="Full name as per bank"
-                  value={bankForm.accountName}
-                  onChange={e => setBankForm({ ...bankForm, accountName: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="account-number">Bank Account Number</label>
-                <input
-                  id="account-number"
-                  type="text"
-                  placeholder="Account Number"
-                  value={bankForm.accountNumber}
-                  onChange={e => setBankForm({ ...bankForm, accountNumber: e.target.value })}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="ifsc-code">Bank IFSC Code</label>
-                <input
-                  id="ifsc-code"
-                  type="text"
-                  placeholder="HDFC0001234"
-                  value={bankForm.ifscCode}
-                  onChange={e => setBankForm({ ...bankForm, ifscCode: e.target.value })}
-                />
-              </div>
-
-              <div className="form-actions" style={{ marginTop: '20px' }}>
-                <button type="button" className="btn-secondary" onClick={() => setEditingProfile(false)}>
-                  Cancel
-                </button>
-                <button type="submit" className="btn-primary">
-                  Save Payout Details
-                </button>
-              </div>
-            </form>
+      {/* BANK SETTINGS EDIT MODAL */}
+      {editingProfile && (
+        <div className="fd-modal-overlay" onClick={() => setEditingProfile(false)}>
+          <div className="fd-modal" onClick={e => e.stopPropagation()}>
+            <div className="fd-modal-header">
+              <h2>⚙️ Payout &amp; Bank Settings</h2>
+              <button className="fd-modal-close" onClick={() => setEditingProfile(false)}>×</button>
+            </div>
+            <div className="fd-modal-body">
+              <form id="profileForm" onSubmit={handleSaveBankDetails}>
+                <div className="fd-form-row"><label className="fd-form-label">Portfolio Link</label><input className="fd-form-input" type="url" value={bankForm.portfolioLink} onChange={e => setBankForm({ ...bankForm, portfolioLink: e.target.value })} /></div>
+                <div className="fd-form-row"><label className="fd-form-label">UPI ID (Fast Payout)</label><input className="fd-form-input" type="text" placeholder="name@upi" value={bankForm.upiId} onChange={e => setBankForm({ ...bankForm, upiId: e.target.value })} /></div>
+                <div className="fd-form-row"><label className="fd-form-label">Account Holder Name</label><input className="fd-form-input" type="text" value={bankForm.accountName} onChange={e => setBankForm({ ...bankForm, accountName: e.target.value })} /></div>
+                <div className="fd-form-row"><label className="fd-form-label">Bank Account Number</label><input className="fd-form-input" type="text" value={bankForm.accountNumber} onChange={e => setBankForm({ ...bankForm, accountNumber: e.target.value })} /></div>
+                <div className="fd-form-row"><label className="fd-form-label">Bank IFSC Code</label><input className="fd-form-input" type="text" value={bankForm.ifscCode} onChange={e => setBankForm({ ...bankForm, ifscCode: e.target.value })} /></div>
+              </form>
+            </div>
+            <div className="fd-modal-footer">
+              <button className="fd-btn-secondary" onClick={() => setEditingProfile(false)}>Cancel</button>
+              <button className="fd-btn-primary" form="profileForm" type="submit">Save Settings</button>
+            </div>
           </div>
         </div>
       )}

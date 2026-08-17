@@ -2008,6 +2008,16 @@ nav a:hover, nav button:hover { color: #3c9d18; }
   transform: translateX(100%);
 }
 
+.am-role-switch.role-count-3 .am-role-pill {
+  width: calc(33.333% - 4px);
+}
+.am-role-switch.role-count-3.is-freelancer .am-role-pill {
+  transform: translateX(100%);
+}
+.am-role-switch.role-count-3.is-admin .am-role-pill {
+  transform: translateX(200%);
+}
+
 .am-eyebrow {
   font-size: 11px;
   font-weight: 700;
@@ -2528,6 +2538,174 @@ select.am-input {
 .wp-btn:active {
   transform: translateY(0);
 }
+
+/* ═══════════════════════════════════════════
+   TEAM LEADERSHIP SECTION STYLES (lp-team-* prefix)
+   ═══════════════════════════════════════════ */
+.lp-team {
+  background: #fdfcf9;
+  border-top: 1px solid #e8ede6;
+  border-bottom: 1px solid #e8ede6;
+}
+
+.lp-team-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 24px;
+  margin-top: 40px;
+}
+
+@media (max-width: 1024px) {
+  .lp-team-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+  }
+}
+
+@media (max-width: 600px) {
+  .lp-team-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+}
+
+.lp-team-card {
+  background: #ffffff;
+  border: 1px solid #e2e8e0;
+  border-radius: 16px;
+  padding: 16px;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+}
+
+.lp-team-card:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 16px 36px rgba(19, 32, 18, 0.08);
+}
+
+.lp-team-img-wrapper {
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  background: #f4f6f3;
+  margin-bottom: 16px;
+}
+
+.lp-team-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.4s ease;
+}
+
+.lp-team-card:hover .lp-team-img {
+  transform: scale(1.04);
+}
+
+.lp-team-label-role {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #3c9d18;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+}
+
+.lp-team-card h3 {
+  font-size: 18px;
+  color: #172414;
+  font-weight: 700;
+  margin: 0 0 4px 0;
+}
+
+.lp-team-card h4 {
+  font-size: 13px;
+  color: #586455;
+  font-weight: 600;
+  margin: 0 0 10px 0;
+}
+
+.lp-team-card p {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: #72806e;
+  margin: 0;
+}
+
+/* Team modal specific */
+.lp-team-modal-layout {
+  display: flex;
+  gap: 30px;
+}
+
+@media (max-width: 768px) {
+  .lp-team-modal-layout {
+    flex-direction: column;
+    gap: 20px;
+  }
+}
+
+.lp-team-modal-photo {
+  width: 240px;
+  height: 240px;
+  border-radius: 16px;
+  object-fit: cover;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .lp-team-modal-photo {
+    width: 100%;
+    height: 200px;
+  }
+}
+
+.lp-team-modal-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.lp-team-modal-info h2 {
+  font-family: 'Fraunces', Georgia, serif;
+  font-size: 28px;
+  color: #172414;
+  margin: 0 0 4px 0;
+}
+
+.lp-team-modal-info h3 {
+  font-size: 14px;
+  font-weight: 700;
+  color: #3c9d18;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 0 0 14px 0;
+}
+
+.lp-team-modal-bio {
+  font-size: 14px;
+  line-height: 1.6;
+  color: #404c3e;
+  margin-bottom: 20px;
+}
+
+.lp-team-modal-fact {
+  background: #f4f6f3;
+  border-left: 3px solid #3c9d18;
+  padding: 12px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #586455;
+  font-style: italic;
+}
+
 
 
 

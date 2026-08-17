@@ -23,6 +23,7 @@ function generateOtp(): string {
 async function persistOtp(email: string, type: 'verify_email' | 'forgot_password'): Promise<string> {
   const code = generateOtp();
   const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  console.log(`📧 Generated OTP for ${email} (type: ${type})`);
   // Invalidate old unused OTPs for this email+type
   await db.delete(otpTokens).where(and(eq(otpTokens.email, email), eq(otpTokens.type, type)));
   await db.insert(otpTokens).values({ email, code, type, expiresAt, used: 0 });
@@ -40,10 +41,17 @@ async function validateOtp(email: string, code: string, type: 'verify_email' | '
       eq(otpTokens.used, 0)
     )
   ).limit(1);
-  if (row.length === 0) return false;
-  if (row[0].expiresAt < now) return false;
+  if (row.length === 0) {
+    console.warn(`⚠️ OTP validation failed: No matching active code found for ${email}`);
+    return false;
+  }
+  if (row[0].expiresAt < now) {
+    console.warn(`⚠️ OTP validation failed: Code has expired for ${email}`);
+    return false;
+  }
   // Mark as used
   await db.update(otpTokens).set({ used: 1 }).where(eq(otpTokens.id, row[0].id));
+  console.log(`✅ OTP successfully verified and invalidated for ${email}`);
   return true;
 }
 
@@ -152,12 +160,22 @@ authApp.post('/register', async (c) => {
     const email         = sanitise(body.email || '').toLowerCase();
     const password      = body.password || '';
     const role          = body.role || 'client';
+    const phone         = sanitise(body.phone || '').trim();
     const services      = body.services || [];
     const portfolioLink = body.portfolioLink || '';
 
-    if (!name || !email || !password) return c.json({ error: 'Name, email, and password are required.' }, 400);
+    if (!name || !email || !password || !phone) return c.json({ error: 'Name, email, password, and phone number are required.' }, 400);
     if (!['client', 'freelancer'].includes(role)) return c.json({ error: 'Self-registration is limited to client or freelancer.' }, 400);
     if (password.length < 8) return c.json({ error: 'Password must be at least 8 characters.' }, 400);
+
+    // Validate phone number: only allow digits and leading + sign
+    const numericPhone = phone.replace(/[^\d]/g, '');
+    if (
+      !(numericPhone.startsWith('91') && numericPhone.length === 12) &&
+      !(/^[6-9]\d{9}$/.test(numericPhone) && numericPhone.length === 10)
+    ) {
+      return c.json({ error: 'Please enter a valid 10-digit Indian mobile number starting with +91 or 91.' }, 400);
+    }
 
     // Check uniqueness across all 3 tables
     const existing = await findUserByEmail(email);
@@ -168,7 +186,7 @@ authApp.post('/register', async (c) => {
     let newUser: any;
     if (role === 'client') {
       const rows = await db.insert(clients).values({
-        name, email, passwordHash,
+        name, email, passwordHash, phone,
         services: services.length > 0 ? JSON.stringify(services) : null,
         status: 'pending_verification',
         emailVerified: 0,
@@ -177,7 +195,7 @@ authApp.post('/register', async (c) => {
       newUser = { ...rows[0], role: 'client' };
     } else {
       const rows = await db.insert(freelancers).values({
-        name, email, passwordHash,
+        name, email, passwordHash, phone,
         services: services.length > 0 ? JSON.stringify(services) : null,
         portfolioLink: portfolioLink || null,
         status: 'pending_verification',
@@ -215,18 +233,30 @@ authApp.post('/register', async (c) => {
 
 // ═══════════════════════════════════════════
 // POST /api/auth/login
-// Queries the correct table based on email match
+// Queries the correct table based on selected role switch
 // ═══════════════════════════════════════════
 authApp.post('/login', async (c) => {
   try {
     const body     = await c.req.json();
     const email    = sanitise(body.email || '').toLowerCase();
     const password = body.password || '';
+    const role     = body.role || 'client'; // 'client' | 'freelancer' | 'admin'
 
     if (!email || !password) return c.json({ error: 'Email and password are required.' }, 400);
 
-    const user = await findUserByEmail(email);
-    if (!user) return c.json({ error: 'Invalid email or password.' }, 401);
+    let user: any = null;
+    if (role === 'client') {
+      const client = await db.select().from(clients).where(eq(clients.email, email)).limit(1);
+      if (client.length > 0) user = { ...client[0], role: 'client' as const };
+    } else if (role === 'freelancer') {
+      const freelancer = await db.select().from(freelancers).where(eq(freelancers.email, email)).limit(1);
+      if (freelancer.length > 0) user = { ...freelancer[0], role: 'freelancer' as const };
+    } else if (role === 'admin' || role === 'qa_admin') {
+      const admin = await db.select().from(admins).where(eq(admins.email, email)).limit(1);
+      if (admin.length > 0) user = { ...admin[0], emailVerified: 1, firstLogin: 0 };
+    }
+
+    if (!user) return c.json({ error: `Invalid email or password for ${role}.` }, 401);
 
     const match = await bcrypt.compare(password, user.passwordHash);
     if (!match) return c.json({ error: 'Invalid email or password.' }, 401);

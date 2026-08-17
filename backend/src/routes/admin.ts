@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
-import { orders, clients, freelancers, admins, messages, testimonials } from '../db/schema.js';
+import { orders, clients, freelancers, admins, messages, testimonials, blogs, bundles, teamMembers } from '../db/schema.js';
 import { eq, and } from 'drizzle-orm';
 import { authGuard, roleGuard } from '../middleware/auth.js';
 import { sendWelcomeEmail, sendOrderUpdateEmail } from '../utils/mailer.js';
@@ -321,4 +321,241 @@ adminApp.post('/testimonials/:id/approve', roleGuard(['admin', 'qa_admin']), asy
   }
 });
 
+// ── GET Blogs (Admin management) ──
+adminApp.get('/blogs', roleGuard(['admin', 'qa_admin']), async (c) => {
+  try {
+    const list = await db.select().from(blogs);
+    return c.json({ data: list });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Create Blog Post ──
+adminApp.post('/blogs', roleGuard(['admin']), async (c) => {
+  try {
+    const body = await c.req.json();
+    const title = sanitise(body.title || '');
+    const author = sanitise(body.author || '');
+    const content = body.content || '';
+    const publishedAt = sanitise(body.publishedAt || new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }));
+
+    if (!title || !content) return c.json({ error: 'Title and content are required.' }, 400);
+
+    const inserted = await db.insert(blogs).values({
+      title,
+      author: author || 'Admin',
+      publishedAt,
+      content,
+      createdAt: new Date().toISOString()
+    }).returning();
+
+    return c.json({ data: inserted[0] }, 201);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── PUT Update Blog Post ──
+adminApp.put('/blogs/:id', roleGuard(['admin']), async (c) => {
+  try {
+    const blogId = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const title = sanitise(body.title || '');
+    const author = sanitise(body.author || '');
+    const content = body.content || '';
+    const publishedAt = sanitise(body.publishedAt || '');
+
+    const updated = await db.update(blogs).set({
+      title,
+      author: author || undefined,
+      publishedAt: publishedAt || undefined,
+      content
+    }).where(eq(blogs.id, blogId)).returning();
+
+    return c.json({ data: updated[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── DELETE Blog Post ──
+adminApp.delete('/blogs/:id', roleGuard(['admin']), async (c) => {
+  try {
+    const blogId = Number(c.req.param('id'));
+    const deleted = await db.delete(blogs).where(eq(blogs.id, blogId)).returning();
+    return c.json({ data: deleted[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── GET Bundles (Admin management) ──
+adminApp.get('/bundles', roleGuard(['admin', 'qa_admin']), async (c) => {
+  try {
+    const list = await db.select().from(bundles);
+    return c.json({ data: list });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Create Bundle ──
+adminApp.post('/bundles', roleGuard(['admin']), async (c) => {
+  try {
+    const body = await c.req.json();
+    const tag = sanitise(body.tag || '');
+    const name = sanitise(body.name || '');
+    const description = sanitise(body.description || '');
+    const price = sanitise(body.price || '');
+    const period = sanitise(body.period || '/ Monthly');
+    const features = Array.isArray(body.features) ? JSON.stringify(body.features) : '[]';
+    const popular = body.popular ? 1 : 0;
+
+    if (!name || !price) return c.json({ error: 'Name and price are required.' }, 400);
+
+    const inserted = await db.insert(bundles).values({
+      tag,
+      name,
+      description,
+      price,
+      period,
+      features,
+      popular,
+      createdAt: new Date().toISOString()
+    }).returning();
+
+    return c.json({ data: inserted[0] }, 201);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── PUT Update Bundle ──
+adminApp.put('/bundles/:id', roleGuard(['admin']), async (c) => {
+  try {
+    const bundleId = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const tag = sanitise(body.tag || '');
+    const name = sanitise(body.name || '');
+    const description = sanitise(body.description || '');
+    const price = sanitise(body.price || '');
+    const period = sanitise(body.period || '');
+    const features = Array.isArray(body.features) ? JSON.stringify(body.features) : undefined;
+    const popular = body.popular !== undefined ? (body.popular ? 1 : 0) : undefined;
+
+    const updated = await db.update(bundles).set({
+      tag: tag || undefined,
+      name: name || undefined,
+      description: description || undefined,
+      price: price || undefined,
+      period: period || undefined,
+      features: features || undefined,
+      popular: popular !== undefined ? popular : undefined
+    }).where(eq(bundles.id, bundleId)).returning();
+
+    return c.json({ data: updated[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── DELETE Bundle ──
+adminApp.delete('/bundles/:id', roleGuard(['admin']), async (c) => {
+  try {
+    const bundleId = Number(c.req.param('id'));
+    const deleted = await db.delete(bundles).where(eq(bundles.id, bundleId)).returning();
+    return c.json({ data: deleted[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── GET Team Members (Admin management) ──
+adminApp.get('/team', roleGuard(['admin', 'qa_admin']), async (c) => {
+  try {
+    const list = await db.select().from(teamMembers);
+    return c.json({ data: list });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Create Team Member ──
+adminApp.post('/team', roleGuard(['admin']), async (c) => {
+  try {
+    const body = await c.req.json();
+    const name = sanitise(body.name || '');
+    const role = sanitise(body.role || '');
+    const subtitle = sanitise(body.subtitle || '');
+    const description = sanitise(body.description || '');
+    const bio = body.bio || '';
+    const uniqueFact = sanitise(body.uniqueFact || '');
+    const image = sanitise(body.image || '');
+    const orderIndex = Number(body.orderIndex) || 0;
+
+    if (!name || !role) return c.json({ error: 'Name and Designation (role) are required.' }, 400);
+
+    const inserted = await db.insert(teamMembers).values({
+      name,
+      role,
+      subtitle,
+      description,
+      bio,
+      uniqueFact,
+      image: image || 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80',
+      orderIndex,
+      createdAt: new Date().toISOString()
+    }).returning();
+
+    return c.json({ data: inserted[0] }, 201);
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── PUT Update Team Member ──
+adminApp.put('/team/:id', roleGuard(['admin']), async (c) => {
+  try {
+    const memberId = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const name = sanitise(body.name || '');
+    const role = sanitise(body.role || '');
+    const subtitle = sanitise(body.subtitle || '');
+    const description = sanitise(body.description || '');
+    const bio = body.bio || '';
+    const uniqueFact = sanitise(body.uniqueFact || '');
+    const image = sanitise(body.image || '');
+    const orderIndex = body.orderIndex !== undefined ? Number(body.orderIndex) : undefined;
+
+    const updated = await db.update(teamMembers).set({
+      name: name || undefined,
+      role: role || undefined,
+      subtitle: subtitle || undefined,
+      description: description || undefined,
+      bio: bio || undefined,
+      uniqueFact: uniqueFact || undefined,
+      image: image || undefined,
+      orderIndex: orderIndex !== undefined ? orderIndex : undefined
+    }).where(eq(teamMembers.id, memberId)).returning();
+
+    return c.json({ data: updated[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── DELETE Team Member ──
+adminApp.delete('/team/:id', roleGuard(['admin']), async (c) => {
+  try {
+    const memberId = Number(c.req.param('id'));
+    const deleted = await db.delete(teamMembers).where(eq(teamMembers.id, memberId)).returning();
+    return c.json({ data: deleted[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 export default adminApp;
+
+

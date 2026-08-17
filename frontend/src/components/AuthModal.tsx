@@ -7,9 +7,10 @@ interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   initialMode?: 'login' | 'signup' | 'forgot';
+  initialRole?: Role;
 }
 
-type Role = 'client' | 'freelancer';
+type Role = 'client' | 'freelancer' | 'admin';
 type Mode = 'login' | 'signup' | 'forgot';
 type ModalView = 'form' | 'otp' | 'success';
 
@@ -55,9 +56,9 @@ function AuthSelect({ label, name, options, value, onChange }: {
   );
 }
 
-export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: AuthModalProps) {
+export default function AuthModal({ isOpen, onClose, initialMode = 'login', initialRole = 'client' }: AuthModalProps) {
   const [mode, setMode] = useState<Mode>(initialMode);
-  const [role, setRole] = useState<Role>('client');
+  const [role, setRole] = useState<Role>(initialRole);
   const [step, setStep] = useState(1); // Sign-up step
   const [forgotStep, setForgotStep] = useState(1); // 1: Email, 2: OTP, 3: Reset Pass
   const [view, setView] = useState<ModalView>('form');
@@ -79,7 +80,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
   useEffect(() => {
     if (isOpen) {
       setMode(initialMode);
-      setRole('client');
+      setRole(initialRole);
       setStep(1);
       setForgotStep(1);
       setView('form');
@@ -93,7 +94,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
       setNewPassword('');
       setConfirmNewPassword('');
     }
-  }, [isOpen, initialMode]);
+  }, [isOpen, initialMode, initialRole]);
 
   // Lock body scroll
   useEffect(() => {
@@ -104,7 +105,17 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
   if (!isOpen) return null;
 
   const handleInput = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData(prev => ({ ...prev, [e.target.name]: e.target.value }));
+    let val = e.target.value;
+    if (e.target.name === 'phone') {
+      // Only allow digits and leading + sign
+      val = val.replace(/[^\d+]/g, '');
+      if (val.startsWith('+')) {
+        val = '+' + val.slice(1).replace(/\+/g, '');
+      } else {
+        val = val.replace(/\+/g, '');
+      }
+    }
+    setFormData(prev => ({ ...prev, [e.target.name]: val }));
   };
 
   const toggleService = (value: string, checked: boolean) => {
@@ -133,6 +144,16 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
     }
   };
 
+  const handleOtpPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').trim();
+    if (!/^\d{6}$/.test(pastedData)) return; // Only accept exactly 6 digits
+    const digits = pastedData.split('');
+    setOtp(digits);
+    // Focus the last input box
+    document.getElementById('otp-5')?.focus();
+  };
+
   // ── Login ──
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -149,7 +170,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
       const res = await fetch(`${API_BASE}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, role }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -195,8 +216,16 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
     e.preventDefault();
     setError('');
     if (step === 1) {
-      if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
+      if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword || !formData.phone) {
         setError('Please fill in all fields.'); return;
+      }
+      const numericPhone = formData.phone.replace(/[^\d]/g, '');
+      if (
+        !(numericPhone.startsWith('91') && numericPhone.length === 12) &&
+        !(/^[6-9]\d{9}$/.test(numericPhone) && numericPhone.length === 10)
+      ) {
+        setError('Please enter a valid 10-digit Indian mobile number starting with +91 or 91.');
+        return;
       }
       if (formData.password !== formData.confirmPassword) {
         setError('Passwords do not match.'); return;
@@ -227,6 +256,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
           name: formData.name,
           email: formData.email,
           password: formData.password,
+          phone: formData.phone,
           role,
           services: formData.services || [],
           portfolioLink: formData.portfolio || '',
@@ -362,6 +392,7 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
     }
   };
 
+
   const switchMode = (m: Mode) => {
     setMode(m); setStep(1); setForgotStep(1); setView('form');
     setError(''); setSuccessMsg(''); setFormData({ services: [] }); setOtp(['', '', '', '', '', '']);
@@ -388,10 +419,15 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
         <h3 className="am-heading">Basic information</h3>
         <p className="am-help">Create your account to start your first project.</p>
         <div className="am-fields">
-          <AuthField label="Full name" name="name" placeholder="Jane Smith" value={formData['name'] || ''} onChange={handleInput} />
-          <AuthField label="Email address" name="email" type="email" placeholder="you@company.com" value={formData['email'] || ''} onChange={handleInput} />
-          <AuthField label="Password" name="password" type="password" placeholder="Minimum 8 characters" value={formData['password'] || ''} onChange={handleInput} />
-          <AuthField label="Confirm password" name="confirmPassword" type="password" placeholder="Repeat password" value={formData['confirmPassword'] || ''} onChange={handleInput} />
+          <div className="am-split">
+            <AuthField label="Full name" name="name" placeholder="Jane Smith" value={formData['name'] || ''} onChange={handleInput} />
+            <AuthField label="Email address" name="email" type="email" placeholder="you@company.com" value={formData['email'] || ''} onChange={handleInput} />
+          </div>
+          <AuthField label="Phone / WhatsApp" name="phone" type="tel" placeholder="+91 98765 43210" value={formData['phone'] || ''} onChange={handleInput} />
+          <div className="am-split">
+            <AuthField label="Password" name="password" type="password" placeholder="Minimum 8 characters" value={formData['password'] || ''} onChange={handleInput} />
+            <AuthField label="Confirm password" name="confirmPassword" type="password" placeholder="Repeat password" value={formData['confirmPassword'] || ''} onChange={handleInput} />
+          </div>
         </div>
       </>
     );
@@ -472,20 +508,26 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
 
   const handleResendOtp = async () => {
     setError('');
+    setLoading(true);
     try {
       const email = mode === 'forgot' ? forgotEmail : formData.email;
-      const type = mode === 'forgot' ? 'forgot_password' : 'verify_email';
-      const endpoint = type === 'forgot_password' ? '/api/auth/forgot-password/send-otp' : '/api/auth/send-otp';
+      const endpoint = mode === 'forgot'
+        ? '/api/auth/forgot-password/send-otp'
+        : '/api/auth/send-otp';
 
       const res = await fetch(`${API_BASE}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, name: formData.name || 'User' }),
       });
-      if (!res.ok) throw new Error('Resend failed');
-      setError('A new OTP has been sent to your email.');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Resend failed');
+      setSuccessMsg('A new OTP has been sent to your email.');
+      setOtp(['', '', '', '', '', '']);
     } catch (err: any) {
-      setError('Failed to resend OTP. Please try again.');
+      setError(err.message || 'Failed to resend OTP. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -515,13 +557,15 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
                 <input key={i} id={`otp-${i}`} className="am-otp-box"
                   inputMode="numeric" maxLength={1} value={v}
                   onChange={e => handleOtpChange(i, e.target.value)}
-                  onKeyDown={e => handleOtpKeyDown(i, e)} />
+                  onKeyDown={e => handleOtpKeyDown(i, e)}
+                  onPaste={handleOtpPaste} />
               ))}
             </div>
             {error && <p className="am-error">{error}</p>}
+            {successMsg && <p style={{ color: '#10b981', fontSize: '14px', marginBottom: '8px' }}>{successMsg}</p>}
             <p className="am-resend">Didn't receive it?{' '}
-              <button type="button" className="am-link" onClick={handleResendOtp}>
-                Resend OTP
+              <button type="button" className="am-link" onClick={handleResendOtp} disabled={loading}>
+                {loading ? 'Sending…' : 'Resend OTP'}
               </button>
             </p>
             <button className="am-submit" type="submit" disabled={loading}>
@@ -583,17 +627,19 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
             {/* Login View */}
             {mode === 'login' && (
               <>
-                <div className={`am-role-switch${role === 'freelancer' ? ' is-freelancer' : ''}`}
-                  style={{ marginBottom: '20px' }}>
-                  <div className="am-role-pill" />
-                  <button type="button" className={role === 'client' ? 'active' : ''}
-                    onClick={() => switchRole('client')}>Client</button>
-                  <button type="button" className={role === 'freelancer' ? 'active' : ''}
-                    onClick={() => switchRole('freelancer')}>Freelancer</button>
-                </div>
+                {role !== 'admin' && (
+                  <div className={`am-role-switch${role === 'freelancer' ? ' is-freelancer' : ''}`}
+                    style={{ marginBottom: '20px' }}>
+                    <div className="am-role-pill" />
+                    <button type="button" className={role === 'client' ? 'active' : ''}
+                      onClick={() => switchRole('client')}>Client</button>
+                    <button type="button" className={role === 'freelancer' ? 'active' : ''}
+                      onClick={() => switchRole('freelancer')}>Freelancer</button>
+                  </div>
+                )}
 
                 <p className="am-eyebrow">WELCOME BACK</p>
-                <h2 className="am-title">Log in as a {role}</h2>
+                <h2 className="am-title">Log in as {role === 'admin' ? 'an Admin' : `a ${role}`}</h2>
                 <p className="am-sub">Access your projects, briefs, and deliveries in one place.</p>
 
                 {successMsg && <p style={{ color: '#10b981', fontSize: '14px', marginBottom: '14px' }}>{successMsg}</p>}
@@ -651,7 +697,8 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login' }: Au
                         <input key={i} id={`otp-${i}`} className="am-otp-box"
                           inputMode="numeric" maxLength={1} value={v}
                           onChange={e => handleOtpChange(i, e.target.value)}
-                          onKeyDown={e => handleOtpKeyDown(i, e)} />
+                          onKeyDown={e => handleOtpKeyDown(i, e)}
+                          onPaste={handleOtpPaste} />
                       ))}
                     </div>
                     {error && <p className="am-error">{error}</p>}

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import AuthModal from '../components/AuthModal';
 import { API_BASE } from '../config.js';
 
@@ -81,6 +80,66 @@ const faqs = [
 
 const trustBrands = ['northstar', 'BLUEROOM', 'dashly', 'pixel&co', 'HORIZON', 'Streamline', 'Brandify', 'northstar', 'BLUEROOM', 'dashly', 'pixel&co', 'HORIZON', 'Streamline', 'Brandify'];
 
+const defaultBlogs = [
+  {
+    title: 'The Future of Blind Workspaces: Why Anonymity Elevates Creative Projects',
+    publishedAt: 'August 12, 2026',
+    author: 'Workonova Editorial',
+    content: `In creative fields, cognitive bias can silently sink projects. When freelancers know they are working for a Fortune 500 company versus a small startup, their designs shift. Workonova's blind-collaboration space protects identity on both ends, allowing creators to focus entirely on brief compliance and pure execution quality.`
+  },
+  {
+    title: 'AI-Assisted Workflows: Optimizing Software Handoffs',
+    publishedAt: 'July 28, 2026',
+    author: 'Tech & Automation Team',
+    content: `Integrating artificial intelligence into software development pipelines isn't about replacing engineers; it is about eliminating manual feedback loops. By automating branch creation, seeding test environments, and validation triggers, we reduce delivery times by 40% and secure robust production builds.`
+  },
+  {
+    title: 'Scaling Corporate Post-Production: High-Speed Video Editing Rules',
+    publishedAt: 'June 15, 2026',
+    author: 'Creative Guild',
+    content: `Post-production demands coordination. Our creative leads share three non-negotiable rules for scaling video assets: keeping strict brand asset folders, providing timestamped reference files during intake, and structuring multi-channel ratios early in the editing phase.`
+  }
+];
+
+const defaultTeam = [
+  {
+    name: 'Dharmendra Sharma',
+    role: 'Founder / CEO / MD',
+    subtitle: 'Strategic Leadership & Agency Vision',
+    description: 'Founder, CEO, and Managing Director driving WORKONOVA with a vision to build high-impact creative technology and performance marketing solutions.',
+    bio: 'Dharmendra Sharma is the visionary Founder and CEO of WORKONOVA. With over a decade of leadership in software design and digital agency consulting, Dharmendra has pioneered the anonymized workspace concept to eliminate cognitive bias and bring pure project delivery quality to the forefront of creative operations. Under his leadership, WORKONOVA has scaled from a boutique design lab into a high-performance ecosystem serving startups and enterprises globally.',
+    uniqueFact: 'Maintains a personal daily focus of reviewing the active QC queue to guarantee every custom client deliverable meets aesthetic thresholds.',
+    image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80'
+  },
+  {
+    name: 'Sanjay Yadav',
+    role: 'Co-Founder / HR',
+    subtitle: 'People Strategy & Operations',
+    description: 'Co-Founder & HR Director managing company culture, talent acquisition, operational efficiency, and client excellence.',
+    bio: 'Sanjay Yadav is the Co-Founder and HR Director at WORKONOVA, managing organizational growth, talent retention, and operations compliance. Sanjay specializes in vetting the top 3% of creative and technical talent across India, ensuring every developer, VFX editor, and animator on the platform matches enterprise-grade expertise. He focuses on fostering a culture of ownership and client-centered excellence.',
+    uniqueFact: 'Has personally vetted and interviewed over 1,200 professional creators to build our agile talent roster.',
+    image: 'https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=600&q=80'
+  },
+  {
+    name: 'Harshit Bhatt',
+    role: 'Digital Marketing, SEO & SMM Expert',
+    subtitle: 'Meta Ads, SEO & Social Media Growth',
+    description: 'Performance marketing specialist driving high-ROAS Meta Ads campaigns, search engine ranking (SEO), and social media growth funnels.',
+    bio: 'Harshit Bhatt leads the Digital Marketing and Growth department at WORKONOVA. A performance marketing specialist with high-velocity campaign experience, Harshit designs paid advertising setups (Meta & Google Ads) and search engine optimization maps that drive high ROAS for e-commerce, SaaS, and retail brands. He specializes in mapping conversion-led funnels and organic search ranking growth.',
+    uniqueFact: 'Averaged a verified 4.2x ROAS across high-scale advertising campaigns in the last fiscal quarter.',
+    image: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=600&q=80'
+  },
+  {
+    name: 'Prachi',
+    role: 'Creative & Graphic Design Lead',
+    subtitle: 'UI/UX & Brand Identity Design',
+    description: 'Leading creative graphics, brand visual identity, and aesthetic UI/UX experiences across web and mobile platforms.',
+    bio: 'Prachi is the Creative and Graphic Design Lead at WORKONOVA. Possessing a deep background in fine arts and digital UI/UX design, Prachi leads the branding, design system curation, and visual direction of all premium creative assets. She collaborates closely with development teams to ensure high-fidelity layouts transition smoothly into production applications.',
+    uniqueFact: 'Has designed and consulted on brand identity packages for over 80 startups worldwide.',
+    image: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=600&q=80'
+  }
+];
+
 /* ─── Service Card ─── */
 function ServiceCard({ svc, onClick }: { svc: typeof services[0]; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
@@ -104,16 +163,34 @@ function ServiceCard({ svc, onClick }: { svc: typeof services[0]; onClick: () =>
 
 /* ─── Main Page ─── */
 export default function LandingPage() {
-  const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; mode: 'login' | 'signup' }>({ open: false, mode: 'login' });
+  const [initialRole, setInitialRole] = useState<'client' | 'freelancer' | 'admin'>('client');
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [liveReviews, setLiveReviews] = useState<any[]>([]);
+  const [liveBlogs, setLiveBlogs] = useState<any[]>([]);
+  const [liveBundles, setLiveBundles] = useState<any[]>([]);
+  const [liveTeam, setLiveTeam] = useState<any[]>([]);
+  const [selectedTeamMember, setSelectedTeamMember] = useState<any | null>(null);
 
   // State for Service and Policy Modals
   const [selectedService, setSelectedService] = useState<{ title: string; list: string[] } | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const modalParam = params.get('modal');
+    const roleParam = params.get('role');
+    if (modalParam === 'login') {
+      if (roleParam === 'admin' || roleParam === 'client' || roleParam === 'freelancer') {
+        setInitialRole(roleParam as any);
+      }
+      openModal('login');
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
+    // 1. Fetch Testimonials
     fetch(`${API_BASE}/api/public/testimonials`)
       .then(res => res.json())
       .then(data => {
@@ -128,12 +205,46 @@ export default function LandingPage() {
         }
       })
       .catch(err => console.error('Public testimonials fetch error:', err));
+
+    // 2. Fetch Blogs
+    fetch(`${API_BASE}/api/public/blogs`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.data && data.data.length > 0) {
+          setLiveBlogs(data.data);
+        }
+      })
+      .catch(err => console.error('Public blogs fetch error:', err));
+
+    // 3. Fetch Bundles
+    fetch(`${API_BASE}/api/public/bundles`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.data && data.data.length > 0) {
+          setLiveBundles(data.data);
+        }
+      })
+      .catch(err => console.error('Public bundles fetch error:', err));
+
+    // 4. Fetch Team
+    fetch(`${API_BASE}/api/public/team`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.data && data.data.length > 0) {
+          setLiveTeam(data.data);
+        }
+      })
+      .catch(err => console.error('Public team fetch error:', err));
   }, []);
+
   const [selectedPolicy, setSelectedPolicy] = useState<{ title: string; html: React.ReactNode } | null>(null);
   const [selectedAboutModal, setSelectedAboutModal] = useState(false);
   const [selectedBlogModal, setSelectedBlogModal] = useState(false);
 
-  const openModal = (mode: 'login' | 'signup') => setModal({ open: true, mode });
+  const openModal = (mode: 'login' | 'signup', role: 'client' | 'freelancer' | 'admin' = 'client') => {
+    setInitialRole(role);
+    setModal({ open: true, mode });
+  };
   const closeModal = () => setModal(m => ({ ...m, open: false }));
 
   useEffect(() => {
@@ -156,7 +267,7 @@ export default function LandingPage() {
           <a href="#why">Why Workonova</a>
           <button onClick={() => setSelectedAboutModal(true)}>About Us</button>
           <button onClick={() => setSelectedBlogModal(true)}>Blog</button>
-          <button onClick={() => navigate('/admin-dashboard')} style={{ color: '#818cf8', fontWeight: 600 }}>Admin Portal 🛡️</button>
+          <button onClick={() => openModal('login', 'admin')} style={{ color: '#818cf8', fontWeight: 600 }}>Admin Portal 🛡️</button>
         </nav>
         <div className="head-actions">
           <button className="btn-ghost" onClick={() => openModal('login')}>Log in</button>
@@ -178,7 +289,7 @@ export default function LandingPage() {
           ))}
           <button onClick={() => { setSelectedAboutModal(true); setMobileOpen(false); }}>About Us</button>
           <button onClick={() => { setSelectedBlogModal(true); setMobileOpen(false); }}>Blog</button>
-          <button onClick={() => { navigate('/admin-dashboard'); setMobileOpen(false); }} style={{ color: '#818cf8', fontWeight: 600 }}>Admin Portal 🛡️</button>
+          <button onClick={() => { openModal('login', 'admin'); setMobileOpen(false); }} style={{ color: '#818cf8', fontWeight: 600 }}>Admin Portal 🛡️</button>
         </nav>
         <div className="mobile-account">
           <button className="btn-ghost" onClick={() => { openModal('login'); setMobileOpen(false); }}>Log in</button>
@@ -269,15 +380,22 @@ export default function LandingPage() {
             <p>No hidden costs. Choose a monthly retainer or order custom standalone deliverables.</p>
           </div>
           <div className="lp-package-grid">
-            {packages.map(pkg => (
+            {(liveBundles.length > 0 ? liveBundles : packages).map(pkg => (
               <article key={pkg.name} className={pkg.popular ? 'lp-popular-package' : ''}>
                 {pkg.popular && <span>Most Popular Choice</span>}
                 <p className="lp-package-for">{pkg.tag}</p>
                 <h3>{pkg.name}</h3>
-                <p>{pkg.desc}</p>
-                <strong>{pkg.price} <small>{pkg.period}</small></strong>
+                <p>{pkg.description || pkg.desc}</p>
+                <strong>{pkg.price.startsWith('₹') ? pkg.price : `₹${pkg.price}`} <small>{pkg.period}</small></strong>
                 <h4>What's Included:</h4>
-                <ul>{pkg.features.map(f => <li key={f}>{f}</li>)}</ul>
+                <ul>
+                  {Array.isArray(pkg.features) 
+                    ? pkg.features.map((f: string) => <li key={f}>{f}</li>)
+                    : typeof pkg.features === 'string'
+                      ? JSON.parse(pkg.features).map((f: string) => <li key={f}>{f}</li>)
+                      : null
+                  }
+                </ul>
                 <button className={`lp-pill${pkg.popular ? ' lp-bright' : ''}`} onClick={() => openModal('signup')}>
                   Book {pkg.name}
                 </button>
@@ -317,6 +435,28 @@ export default function LandingPage() {
                 <i>{r.icon}</i>
                 <h3>{r.title}</h3>
                 <p>{r.desc}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {/* ══ LEADERSHIP TEAM ══ */}
+        <section className="lp-section lp-team" id="team">
+          <div className="lp-intro" style={{ textAlign: 'center', maxWidth: 800, margin: '0 auto 40px auto' }}>
+            <span style={{ background: '#e8f7e1', color: '#2e7d17', fontSize: 11, fontWeight: 700, padding: '4px 12px', borderRadius: 20, textTransform: 'uppercase', letterSpacing: 0.5 }}>⚡ Leadership & Minds</span>
+            <h2 style={{ fontSize: 36, fontFamily: "'Fraunces', Georgia, serif", color: '#172414', margin: '16px 0 12px 0' }}>Meet the Minds Behind WORKONOVA</h2>
+            <p style={{ color: '#586455', fontSize: 15 }}>A passionate team of creative visionaries, senior software architects, and growth marketers.</p>
+          </div>
+          <div className="lp-team-grid">
+            {(liveTeam.length > 0 ? liveTeam : defaultTeam).map(m => (
+              <article key={m.name} className="lp-team-card" onClick={() => setSelectedTeamMember(m)}>
+                <div className="lp-team-img-wrapper">
+                  <img src={m.image} alt={m.name} className="lp-team-img" />
+                </div>
+                <span className="lp-team-label-role">{m.role}</span>
+                <h3>{m.name}</h3>
+                <h4>{m.subtitle}</h4>
+                <p>{m.description}</p>
               </article>
             ))}
           </div>
@@ -411,7 +551,7 @@ export default function LandingPage() {
         <small>Copyright 2026 Workonova. All rights reserved.</small>
       </footer>
 
-      <AuthModal isOpen={modal.open} onClose={closeModal} initialMode={modal.mode} />
+      <AuthModal isOpen={modal.open} onClose={closeModal} initialMode={modal.mode} initialRole={initialRole} />
 
       {/* ══ ABOUT US POPUP MODAL ══ */}
       {selectedAboutModal && (
@@ -466,23 +606,15 @@ export default function LandingPage() {
             </div>
             <div className="lp-modal-body" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
               <div className="lp-policy-content">
-                <article style={{ borderBottom: '1px solid #e8ede6', paddingBottom: '20px', marginBottom: '20px' }}>
-                  <h2 style={{ fontSize: '18px', margin: '0 0 8px' }}>The Future of Blind Workspaces: Why Anonymity Elevates Creative Projects</h2>
-                  <small style={{ color: '#72806e', fontSize: '12px', display: 'block', marginBottom: '10px' }}>August 12, 2026 • By Workonova Editorial</small>
-                  <p>In creative fields, cognitive bias can silently sink projects. When freelancers know they are working for a Fortune 500 company versus a small startup, their designs shift. Workonova's blind-collaboration space protects identity on both ends, allowing creators to focus entirely on brief compliance and pure execution quality.</p>
-                </article>
-
-                <article style={{ borderBottom: '1px solid #e8ede6', paddingBottom: '20px', marginBottom: '20px' }}>
-                  <h2 style={{ fontSize: '18px', margin: '0 0 8px' }}>AI-Assisted Workflows: Optimizing Software Handoffs</h2>
-                  <small style={{ color: '#72806e', fontSize: '12px', display: 'block', marginBottom: '10px' }}>July 28, 2026 • By Tech & Automation Team</small>
-                  <p>Integrating artificial intelligence into software development pipelines isn't about replacing engineers; it is about eliminating manual feedback loops. By automating branch creation, seeding test environments, and validation triggers, we reduce delivery times by 40% and secure robust production builds.</p>
-                </article>
-
-                <article style={{ paddingBottom: '10px' }}>
-                  <h2 style={{ fontSize: '18px', margin: '0 0 8px' }}>Scaling Corporate Post-Production: High-Speed Video Editing Rules</h2>
-                  <small style={{ color: '#72806e', fontSize: '12px', display: 'block', marginBottom: '10px' }}>June 15, 2026 • By Creative Guild</small>
-                  <p>Post-production demands coordination. Our creative leads share three non-negotiable rules for scaling video assets: keeping strict brand asset folders, providing timestamped reference files during intake, and structuring multi-channel ratios early in the editing phase.</p>
-                </article>
+                {(liveBlogs.length > 0 ? liveBlogs : defaultBlogs).map((b, idx) => (
+                  <article key={b.id || idx} style={{ borderBottom: '1px solid #e8ede6', paddingBottom: '20px', marginBottom: '20px' }}>
+                    <h2 style={{ fontSize: '18px', margin: '0 0 8px' }}>{b.title}</h2>
+                    <small style={{ color: '#72806e', fontSize: '12px', display: 'block', marginBottom: '10px' }}>
+                      {b.publishedAt || b.published_at} • By {b.author}
+                    </small>
+                    <p style={{ whiteSpace: 'pre-wrap', color: '#1a1a1a', fontSize: '13px', lineHeight: '1.6' }}>{b.content}</p>
+                  </article>
+                ))}
               </div>
             </div>
             <div className="lp-modal-footer">
@@ -531,6 +663,37 @@ export default function LandingPage() {
             </div>
             <div className="lp-modal-footer">
               <button className="btn-primary" onClick={() => setSelectedPolicy(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══ TEAM MEMBER DETAIL POPUP MODAL (Aesthetic Biography Modal) ══ */}
+      {selectedTeamMember && (
+        <div className="lp-modal-backdrop" onClick={() => setSelectedTeamMember(null)}>
+          <div className="lp-modal-window" onClick={e => e.stopPropagation()}>
+            <div className="lp-modal-header">
+              <h3>Team Leadership Profile</h3>
+              <button className="lp-modal-close" onClick={() => setSelectedTeamMember(null)}>×</button>
+            </div>
+            <div className="lp-modal-body">
+              <div className="lp-team-modal-layout">
+                <img src={selectedTeamMember.image} alt={selectedTeamMember.name} className="lp-team-modal-photo" />
+                <div className="lp-team-modal-info">
+                  <h2>{selectedTeamMember.name}</h2>
+                  <h3>{selectedTeamMember.role}</h3>
+                  <p style={{ color: '#586455', fontSize: '13px', fontWeight: 600, marginTop: '-10px', marginBottom: '16px' }}>{selectedTeamMember.subtitle}</p>
+                  <div className="lp-team-modal-bio">{selectedTeamMember.bio}</div>
+                  {selectedTeamMember.uniqueFact && (
+                    <div className="lp-team-modal-fact">
+                      <strong>Core Focus & Philosophy:</strong> {selectedTeamMember.uniqueFact}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="lp-modal-footer">
+              <button className="btn-primary" onClick={() => setSelectedTeamMember(null)}>Close Profile</button>
             </div>
           </div>
         </div>

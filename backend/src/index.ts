@@ -3,6 +3,7 @@ import { serve } from '@hono/node-server';
 import { Hono } from 'hono';
 import { compress } from 'hono/compress';
 import { cors } from 'hono/cors';
+import { logger } from 'hono/logger';
 import authApp from './routes/auth.js';
 import clientApp from './routes/client.js';
 import freelancerApp from './routes/freelancer.js';
@@ -21,17 +22,32 @@ if (process.env.NODE_ENV === 'production') {
 const app = new Hono();
 
 // ── Allowed origin (set CORS_ORIGIN env var in production) ──
-const allowedOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';
+// ── Allowed origins (support local dev and AWS S3 static website endpoints) ──
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:5174',
+];
+if (process.env.CORS_ORIGIN) {
+  allowedOrigins.push(process.env.CORS_ORIGIN);
+}
 
 // ── Middleware ──
+app.use('*', logger());
 app.use('*', compress());
 app.use('*', cors({
   origin: (origin) => {
+    if (!origin) return allowedOrigins[0];
     if (process.env.NODE_ENV !== 'production') {
-      return origin; // Development mode allows any origin
+      return origin; // Development allows all
     }
-    // Strict comparison in production
-    return origin === allowedOrigin ? origin : allowedOrigin;
+    // Production: Allow defined origins or S3 static hosting buckets
+    if (
+      allowedOrigins.includes(origin) ||
+      (origin.startsWith('http://workonova-frontend-') && origin.includes('.s3-website-'))
+    ) {
+      return origin;
+    }
+    return allowedOrigins[0];
   },
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
@@ -67,7 +83,7 @@ export const handler = handle(app);
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
   const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
   initDatabase().then(() => {
-    console.log(`🚀 WORKONOVA Server running on port ${port} | CORS: ${allowedOrigin}`);
+    console.log(`🚀 WORKONOVA Server running on port ${port} | CORS: ${allowedOrigins.join(', ')}`);
     serve({ fetch: app.fetch, port });
   });
 }

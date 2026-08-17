@@ -13,6 +13,7 @@ export const clients = pgTable('clients', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
+  phone: text('phone'),
   services: text('services'),           // JSON array: services they're interested in
   status: text('status').notNull().default('pending_verification'),
   // 'pending_verification' | 'active' | 'suspended'
@@ -28,6 +29,7 @@ export const freelancers = pgTable('freelancers', {
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
+  phone: text('phone'),
   services: text('services'),           // JSON array: services they can provide
   portfolioLink: text('portfolio_link'),
   bankDetails: text('bank_details'),    // JSON stringified bank transfer details
@@ -112,3 +114,45 @@ export const testimonials = pgTable('testimonials', {
 // We keep this so existing code compiles without breaking during migration.
 // Remove once all routes are updated to use clients/freelancers/admins tables.
 export const users = clients; // Temporary alias — will be removed in next refactor phase
+
+// ─── 8. BLOGS TABLE ───────────────────────────────────────────
+// Dynamic editorial posts visible on the landing page
+export const blogs = pgTable('blogs', {
+  id: serial('id').primaryKey(),
+  title: text('title').notNull(),
+  author: text('author').notNull(),
+  publishedAt: text('published_at').notNull(),
+  content: text('content').notNull(),
+  createdAt: text('created_at').default(new Date().toISOString()),
+});
+
+// ─── 9. BUNDLES TABLE ─────────────────────────────────────────
+// Dynamic pricing bundles visible on the landing page
+export const bundles = pgTable('bundles', {
+  id: serial('id').primaryKey(),
+  tag: text('tag').notNull(),
+  name: text('name').notNull(),
+  description: text('description').notNull(),
+  price: text('price').notNull(),
+  period: text('period').notNull(),
+  features: text('features').notNull(), // JSON string array
+  popular: integer('popular').notNull().default(0), // 0=false, 1=true
+  createdAt: text('created_at').default(new Date().toISOString()),
+});
+
+// ─── 10. TEAM MEMBERS TABLE ───────────────────────────────────
+// Dynamic leadership profile listings with detailed popups
+export const teamMembers = pgTable('team_members', {
+  id: serial('id').primaryKey(),
+  name: text('name').notNull(),
+  role: text('role').notNull(),
+  subtitle: text('subtitle').notNull(),
+  description: text('description').notNull(),
+  bio: text('bio').notNull(),
+  uniqueFact: text('unique_fact').notNull(),
+  image: text('image').notNull(),
+  orderIndex: integer('order_index').default(0),
+  createdAt: text('created_at').default(new Date().toISOString()),
+});
+
+

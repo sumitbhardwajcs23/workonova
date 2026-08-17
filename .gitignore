@@ -6,3 +6,6 @@ dist/
 *.db
 *.db-shm
 *.db-wal
+scratch/
+scratch_*.js
+*.tsbuildinfo

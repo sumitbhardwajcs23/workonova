@@ -12,7 +12,12 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
 
   if (!user || ('emailVerified' in user && user.emailVerified === 0)) {
     // Not logged in or not email verified
-    return <Navigate to="/" replace />;
+    const defaultRole = allowedRoles && (allowedRoles.includes('admin') || allowedRoles.includes('qa_admin'))
+      ? 'admin'
+      : allowedRoles && allowedRoles.includes('freelancer')
+        ? 'freelancer'
+        : 'client';
+    return <Navigate to={`/?modal=login&role=${defaultRole}`} replace />;
   }
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
