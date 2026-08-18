@@ -10,6 +10,7 @@ export default function AdminLogin() {
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const navigate = useNavigate();
   const currentUser = getUser();
@@ -44,7 +45,7 @@ export default function AdminLogin() {
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed. Please check your credentials.');
+        throw new Error(data.error || 'Authentication failed. Please verify your credentials.');
       }
 
       if (data.user?.role !== 'admin' && data.user?.role !== 'qa_admin') {
@@ -61,126 +62,195 @@ export default function AdminLogin() {
   };
 
   return (
-    <div className="al-root">
-      {/* Background glowing ambience */}
-      <div className="al-glow-top" />
-      <div className="al-glow-bottom" />
+    <div className="al-page">
+      {/* ══ HEADER (Exact Landing Page Style) ══ */}
+      <header>
+        <Link to="/" className="brand">
+          <img src="/assets/workonova-logo.webp" alt="Workonova" />
+        </Link>
+        <nav>
+          <Link to="/">Home</Link>
+          <Link to="/#services">Services</Link>
+          <Link to="/#process">How it works</Link>
+          <Link to="/#gallery">Gallery</Link>
+          <Link to="/#portfolio">Portfolio</Link>
+          <Link to="/#why">Why Workonova</Link>
+        </nav>
+        <div className="head-actions">
+          <Link to="/" className="btn-ghost">← Back to Site</Link>
+          <Link to="/?modal=login" className="btn-pill">Client Login</Link>
+          <button className="hamburger" aria-label="Open menu" onClick={() => setMobileOpen(true)}>☰</button>
+        </div>
+      </header>
 
-      <div className="al-container">
-        {/* Brand Header */}
-        <div className="al-header">
-          <Link to="/" className="al-logo-link" title="Return to Workonova Home">
-            <img src="/assets/workonova-logo.webp" alt="Workonova" className="al-logo-img" />
-          </Link>
-          <div className="al-badge">
-            <span className="al-badge-dot" />
-            WORKONOVA ADMIN OS
+      {/* ══ MOBILE MENU ══ */}
+      {mobileOpen && <div className="menu-backdrop is-open" onClick={() => setMobileOpen(false)} />}
+      <aside className={`mobile-menu${mobileOpen ? ' is-open' : ''}`}>
+        <button className="menu-close" onClick={() => setMobileOpen(false)}>×</button>
+        <Link to="/" className="brand" onClick={() => setMobileOpen(false)}>
+          <img src="/assets/workonova-logo.webp" alt="Workonova" />
+        </Link>
+        <nav>
+          <Link to="/" onClick={() => setMobileOpen(false)}>Home</Link>
+          <Link to="/#services" onClick={() => setMobileOpen(false)}>Services</Link>
+          <Link to="/#process" onClick={() => setMobileOpen(false)}>How it works</Link>
+          <Link to="/#gallery" onClick={() => setMobileOpen(false)}>Gallery</Link>
+          <Link to="/#portfolio" onClick={() => setMobileOpen(false)}>Portfolio</Link>
+          <Link to="/#why" onClick={() => setMobileOpen(false)}>Why Workonova</Link>
+        </nav>
+        <div className="mobile-account">
+          <Link to="/" className="btn-ghost" onClick={() => setMobileOpen(false)}>← Back to Site</Link>
+          <Link to="/?modal=login" className="btn-pill" onClick={() => setMobileOpen(false)}>Client Login</Link>
+        </div>
+      </aside>
+
+      {/* ══ MAIN ADMIN LOGIN SECTION (Landing Page Aesthetic) ══ */}
+      <main className="al-main">
+        <div className="al-hero-wrap">
+          {/* Eyebrow badge matching landing page */}
+          <div className="al-badge-wrap">
+            <span className="al-badge-pill">🔒 RESTRICTED ACCESS • CENTRAL COMMAND</span>
           </div>
-          <h1 className="al-title">Operational Portal Panel</h1>
-          <p className="al-subtitle">
-            Restricted Central Command System for authorized executive &amp; QA leadership.
+
+          <h1 className="al-page-title">Admin Portal Panel</h1>
+          <p className="al-page-desc">
+            Authorized administrative &amp; QA management portal for WORKONOVA operational systems.
           </p>
-        </div>
 
-        {/* Login Card */}
-        <div className="al-card">
-          {error && (
-            <div className="al-alert-error" role="alert">
-              <span className="al-alert-icon">⚠️</span>
-              <div className="al-alert-text">{error}</div>
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="al-form">
-            <div className="al-field-group">
-              <label className="al-label" htmlFor="admin-email">
-                Administrative ID / Email
-              </label>
-              <div className="al-input-wrap">
-                <span className="al-input-icon">👤</span>
-                <input
-                  id="admin-email"
-                  type="email"
-                  required
-                  autoFocus
-                  autoComplete="username"
-                  placeholder="admin@workonova.com"
-                  className="al-input"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
+          {/* Clean Card matching landing page palette */}
+          <div className="al-form-card">
+            {error && (
+              <div className="al-error-callout" role="alert">
+                <span className="al-error-icon">⚠️</span>
+                <span>{error}</span>
               </div>
-            </div>
+            )}
 
-            <div className="al-field-group">
-              <div className="al-label-row">
-                <label className="al-label" htmlFor="admin-password">
-                  Security Access Key / Password
+            <form onSubmit={handleSubmit} className="al-form-inner">
+              <div className="al-input-group">
+                <label className="al-form-label" htmlFor="admin-email">
+                  Admin ID / Registered Email
                 </label>
+                <div className="al-input-box">
+                  <span className="al-box-icon">👤</span>
+                  <input
+                    id="admin-email"
+                    type="email"
+                    required
+                    autoFocus
+                    autoComplete="username"
+                    placeholder="admin@workonova.com"
+                    className="al-text-input"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
               </div>
-              <div className="al-input-wrap">
-                <span className="al-input-icon">🔒</span>
-                <input
-                  id="admin-password"
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  placeholder="••••••••••••"
-                  className="al-input"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                <button
-                  type="button"
-                  className="al-eye-btn"
-                  onClick={() => setShowPassword(!showPassword)}
-                  tabIndex={-1}
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                >
-                  {showPassword ? '🙈' : '👁️'}
-                </button>
+
+              <div className="al-input-group">
+                <div className="al-label-flex">
+                  <label className="al-form-label" htmlFor="admin-password">
+                    Admin Password / Security Key
+                  </label>
+                </div>
+                <div className="al-input-box">
+                  <span className="al-box-icon">🔑</span>
+                  <input
+                    id="admin-password"
+                    type={showPassword ? 'text' : 'password'}
+                    required
+                    autoComplete="current-password"
+                    placeholder="••••••••••••"
+                    className="al-text-input"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  <button
+                    type="button"
+                    className="al-toggle-eye"
+                    onClick={() => setShowPassword(!showPassword)}
+                    tabIndex={-1}
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? '🙈' : '👁️'}
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <button
-              type="submit"
-              disabled={loading}
-              className={`al-submit-btn ${loading ? 'loading' : ''}`}
-            >
-              {loading ? (
-                <>
-                  <span className="al-spinner" />
-                  <span>Authenticating Command Clearance...</span>
-                </>
-              ) : (
-                <>
-                  <span>Authorize &amp; Access Admin OS</span>
-                  <span className="al-submit-arrow">→</span>
-                </>
-              )}
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={loading}
+                className={`al-submit-pill ${loading ? 'is-loading' : ''}`}
+              >
+                {loading ? (
+                  <>
+                    <span className="al-spinner-leaf" />
+                    <span>Verifying Credentials...</span>
+                  </>
+                ) : (
+                  <>
+                    <span>Authorize &amp; Sign In</span>
+                    <span className="al-arrow-icon">→</span>
+                  </>
+                )}
+              </button>
+            </form>
 
-          <div className="al-security-footer">
-            <div className="al-sec-item">
-              <span className="al-sec-icon">🛡️</span>
-              <span>256-Bit SSL Encrypted Session</span>
-            </div>
-            <div className="al-sec-divider">•</div>
-            <div className="al-sec-item">
-              <span className="al-sec-icon">⚡</span>
-              <span>Hardware-Isolated RBAC</span>
+            <div className="al-sec-row">
+              <div className="al-sec-badge">
+                <span className="al-dot-green" />
+                <span>256-Bit SSL Encrypted</span>
+              </div>
+              <span className="al-sec-dot">•</span>
+              <div className="al-sec-badge">
+                <span>⚡ Hardware-Isolated RBAC</span>
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Bottom Navigation */}
-        <div className="al-foot-links">
-          <Link to="/" className="al-home-link">
-            ← Return to Public Marketplace Homepage
-          </Link>
+          <div className="al-back-wrap">
+            <Link to="/" className="al-home-return">
+              ← Return to Workonova Public Homepage
+            </Link>
+          </div>
         </div>
-      </div>
+      </main>
+
+      {/* ══ FOOTER (Exact Landing Page Style) ══ */}
+      <footer className="lp-footer">
+        <div>
+          <Link className="brand lp-footer-brand" to="/"><img src="/assets/workonova-logo.webp" alt="Workonova" /></Link>
+          <p>Premium creative and tech solutions, delivered without the usual hassle.</p>
+          <div className="lp-socials">
+            <a href="https://instagram.com/workonova_com" target="_blank" rel="noopener noreferrer">Instagram @workonova_com</a>
+            <a href="https://facebook.com/workonovaofficial" target="_blank" rel="noopener noreferrer">Facebook /workonovaofficial</a>
+            <a href="https://youtube.com/@workonova_com" target="_blank" rel="noopener noreferrer">YouTube @workonova_com</a>
+          </div>
+        </div>
+        <div>
+          <h4>Contact</h4>
+          <a href="tel:+918077717422">Call: +91 8077 717 422</a>
+          <a href="https://wa.me/917983264117">WhatsApp: 7983264117</a>
+          <a href="mailto:contact@workonova.com">contact@workonova.com</a>
+        </div>
+        <div>
+          <h4>Legal Policies</h4>
+          <Link to="/#top" className="lp-footer-link">Privacy Policy</Link>
+          <Link to="/#top" className="lp-footer-link">Terms &amp; Conditions</Link>
+          <Link to="/#top" className="lp-footer-link">Disclaimer</Link>
+          <Link to="/#top" className="lp-footer-link">Refund &amp; Cancellation Policy</Link>
+        </div>
+        <div>
+          <h4>Our Services</h4>
+          <Link to="/#services">Graphic Designing</Link>
+          <Link to="/#services">Video Editing</Link>
+          <Link to="/#services">3D Design &amp; Modeling</Link>
+          <Link to="/#services">VFX &amp; Motion Graphics</Link>
+          <Link to="/#services">Digital Marketing</Link>
+          <Link to="/#services">Website, Software, Mobile &amp; AI</Link>
+        </div>
+        <small>Copyright 2026 Workonova. All rights reserved.</small>
+      </footer>
     </div>
   );
 }
