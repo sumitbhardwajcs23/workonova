@@ -90,9 +90,23 @@ export default function AdminDashboard() {
   const [flFilterSkill, setFlFilterSkill] = useState('all');
 
   // ── MODALS & SUBMIT CONTROLS ──────────────────────────────────
+  const [assignDeskTab, setAssignDeskTab] = useState<'pending' | 'assigned'>('pending');
   const [assigningOrder, setAssigningOrder] = useState<Order | null>(null);
   const [selectedFreelancerId, setSelectedFreelancerId] = useState<number | ''>('');
   const [payoutAmount, setPayoutAmount] = useState<number>(0);
+  const [isAssigning, setIsAssigning] = useState(false);
+
+  // ── ON-DEMAND / CUSTOM QUOTING STATES ──────────────────────────
+  const [onDemandTab, setOnDemandTab] = useState<'pending' | 'quoted' | 'all'>('pending');
+  const [quoteOrder, setQuoteOrder] = useState<Order | null>(null);
+  const [quotePriceInput, setQuotePriceInput] = useState<number>(0);
+  const [quoteNotesInput, setQuoteNotesInput] = useState<string>('');
+  const [quoteTierInput, setQuoteTierInput] = useState<string>('custom');
+  const [quoteCategoryInput, setQuoteCategoryInput] = useState<string>('');
+  const [isQuoting, setIsQuoting] = useState<boolean>(false);
+
+  // ── CLIENT DOSSIER POPUP MODAL ────────────────────────────────
+  const [selectedClientModal, setSelectedClientModal] = useState<ClientRow | null>(null);
 
   const [qaOrder, setQaOrder] = useState<Order | null>(null);
   const [qaAction, setQaAction] = useState<'approve' | 'revision' | 'reject'>('approve');
@@ -243,20 +257,29 @@ export default function AdminDashboard() {
 
   const handleAssignOrder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!assigningOrder || !selectedFreelancerId) return;
+    if (!assigningOrder) return;
+    if (!selectedFreelancerId) {
+      setError('Please select a freelancer from the dropdown.');
+      return;
+    }
     setError(''); setSuccess('');
+    setIsAssigning(true);
     try {
       const res = await fetch(`${API_BASE}/api/admin/orders/${assigningOrder.id}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ freelancerId: Number(selectedFreelancerId), payoutAmount })
+        body: JSON.stringify({ freelancerId: Number(selectedFreelancerId), payoutAmount: Number(payoutAmount) || 0 })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Assignment failed');
-      setSuccess(`Task assigned successfully to freelancer!`);
+      setSuccess(`🎯 Task #WN-${assigningOrder.id} assigned successfully to specialist!`);
       setAssigningOrder(null); setSelectedFreelancerId(''); setPayoutAmount(0);
-      fetchDashboardData();
-    } catch (err: any) { setError(err.message); }
+      await fetchDashboardData(true);
+    } catch (err: any) { 
+      setError(err.message || 'Failed to assign task.'); 
+    } finally {
+      setIsAssigning(false);
+    }
   };
 
   const handleQaSubmit = async (e: React.FormEvent) => {
@@ -297,6 +320,62 @@ export default function AdminDashboard() {
       setEditPriceOrder(null);
       fetchDashboardData();
     } catch (err: any) { setError(err.message); }
+  };
+
+  const handleQuoteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!quoteOrder) return;
+    if (quotePriceInput <= 0) {
+      setError('Please enter a valid project quote price greater than 0.');
+      return;
+    }
+    setError(''); setSuccess('');
+    setIsQuoting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/orders/${quoteOrder.id}/quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          price: Number(quotePriceInput),
+          quoteNotes: quoteNotesInput,
+          tier: quoteTierInput || 'custom',
+          serviceCategory: quoteCategoryInput || quoteOrder.serviceCategory,
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to submit quote');
+      setSuccess(`⚡ Quote of ₹${Number(quotePriceInput).toLocaleString('en-IN')} sent to Client for Order #WN-${quoteOrder.id}! 50% Kickoff milestone demand active.`);
+      setQuoteOrder(null); setQuotePriceInput(0); setQuoteNotesInput('');
+      await fetchDashboardData(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to send quote.');
+    } finally {
+      setIsQuoting(false);
+    }
+  };
+
+  const handleToggleClientStatus = async (clientId: number, currentStatus: string) => {
+    const nextStatus = currentStatus === 'Active' ? 'suspended' : 'active';
+    setError(''); setSuccess('');
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/${clientId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ role: 'client', status: nextStatus })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update client status');
+      setSuccess(`Client status successfully updated to ${nextStatus.toUpperCase()}!`);
+      if (selectedClientModal) {
+        setSelectedClientModal({
+          ...selectedClientModal,
+          status: nextStatus === 'active' ? 'Active' : 'Suspended'
+        });
+      }
+      await fetchDashboardData(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to change client status.');
+    }
   };
 
   const handleCreateFreelancer = async (e: React.FormEvent) => {
@@ -721,23 +800,31 @@ export default function AdminDashboard() {
 
   // ── STATISTICS & AGGREGATIONS ────────────────────────────────
   const monthlyInflow = orders.filter(o => o.status !== 'cancelled').reduce((acc, o) => acc + o.price, 0);
-  const activeCount = orders.filter(o => ['paid', 'assigned', 'submitted', 'revision_requested'].includes(o.status)).length;
+  const activeCount = orders.filter(o => ['paid', 'paid_50', 'assigned', 'midpoint_submitted', 'midpoint_approved', 'paid_75', 'submitted', 'qa_approved', 'revision_requested'].includes(o.status)).length;
   const qcGateCount = orders.filter(o => o.status === 'submitted').length;
   const payoutDue = orders.filter(o => o.status === 'qa_approved').reduce((acc, o) => acc + (o.freelancerPayoutAmount || 0), 0);
 
-  const assignDeskCount = orders.filter(o => o.status === 'paid').length;
+  const assignDeskCount = orders.filter(o => !o.freelancerId && ['paid', 'paid_50', 'paid_75', 'pending_payment'].includes(o.status)).length;
   const disputeDeskCount = orders.filter(o => o.status === 'revision_requested').length;
   const testimonialCount = testimonials.filter(t => t.status === 'pending').length;
 
+  // On-Demand / Custom Quote counters
+  const onDemandOrders = orders.filter(o => o.tier === 'custom' || ['on_demand_review', 'pending_advance', 'quote_provided'].includes(o.status));
+  const onDemandCount = onDemandOrders.length;
+  const pendingQuoteCount = orders.filter(o => ['on_demand_review', 'pending_advance'].includes(o.status)).length;
+
   // Group orders by client to compute Client Intelligence Grid
   interface ClientRow {
+    id: number;
     name: string;
     email: string;
     phone: string;
     totalOrders: number;
     activeTasks: number;
+    completedTasks: number;
     ltv: number;
-    status: 'Active' | 'Dormant';
+    status: 'Active' | 'Dormant' | 'Suspended';
+    createdAt?: string;
   }
 
   const clientMap: Record<string, ClientRow> = {};
@@ -746,20 +833,25 @@ export default function AdminDashboard() {
     const key = o.client.email.toLowerCase();
     if (!clientMap[key]) {
       clientMap[key] = {
+        id: o.clientId,
         name: o.client.name,
         email: o.client.email,
         phone: o.client.phone || '+91 98765 43210',
         totalOrders: 0,
         activeTasks: 0,
+        completedTasks: 0,
         ltv: 0,
-        status: 'Dormant'
+        status: 'Dormant',
+        createdAt: o.createdAt
       };
     }
     clientMap[key].totalOrders += 1;
-    clientMap[key].ltv += o.price;
-    if (['paid', 'assigned', 'submitted', 'revision_requested'].includes(o.status)) {
+    clientMap[key].ltv += (o.amountPaid || o.price || 0);
+    if (['paid', 'paid_50', 'assigned', 'midpoint_submitted', 'midpoint_approved', 'paid_75', 'submitted', 'revision_requested'].includes(o.status)) {
       clientMap[key].activeTasks += 1;
       clientMap[key].status = 'Active';
+    } else if (['client_approved', 'completed', 'delivered'].includes(o.status)) {
+      clientMap[key].completedTasks += 1;
     }
   });
 
@@ -811,6 +903,14 @@ export default function AdminDashboard() {
           <button className={`ad-nav-item${currentView === 'pipeline' ? ' active' : ''}`} onClick={() => goView('pipeline')}>
             <span className="ad-nav-icon">📥</span><span>Order Pipeline</span>
             {orders.length > 0 && <span className="ad-nav-badge">{orders.length}</span>}
+          </button>
+          <button className={`ad-nav-item${currentView === 'ondemand' ? ' active' : ''}`} onClick={() => goView('ondemand')}>
+            <span className="ad-nav-icon">⚡</span><span>On-Demand Desk</span>
+            {pendingQuoteCount > 0 ? (
+              <span className="ad-nav-badge urgent">{pendingQuoteCount}</span>
+            ) : onDemandCount > 0 ? (
+              <span className="ad-nav-badge">{onDemandCount}</span>
+            ) : null}
           </button>
           <button className={`ad-nav-item${currentView === 'assign' ? ' active' : ''}`} onClick={() => goView('assign')}>
             <span className="ad-nav-icon">🎯</span><span>Assign Desk</span>
@@ -1023,6 +1123,19 @@ export default function AdminDashboard() {
                             <td><span className={`fd-status-pill ${o.status}`}>{o.status.toUpperCase()}</span></td>
                             <td style={{ display: 'flex', gap: 6 }}>
                               <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
+                              {(!o.freelancerId || ['paid', 'paid_50', 'paid_75', 'pending_payment'].includes(o.status)) && (
+                                <button 
+                                  className="ad-pag-btn active" 
+                                  title="Assign this task to a specialist freelancer"
+                                  onClick={() => {
+                                    setAssigningOrder(o);
+                                    setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
+                                    setSelectedFreelancerId(o.freelancerId || '');
+                                  }}
+                                >
+                                  🎯 Assign
+                                </button>
+                              )}
                               <button className="ad-pag-btn" onClick={() => { setEditPriceOrder(o); setEditPriceInput(o.price); setEditTierInput(o.tier || 'silver'); setEditCategoryInput(o.serviceCategory); }}>✏️ Price</button>
                               {o.status === 'submitted' && <button className="ad-pag-btn active" onClick={() => setQaOrder(o)}>🛡️ QA</button>}
                               {isMaster && ['assigned', 'submitted', 'qa_approved', 'revision_requested'].includes(o.status) && (
@@ -1041,6 +1154,197 @@ export default function AdminDashboard() {
               </>
             )}
 
+            {/* ════ VIEW: ON-DEMAND DESK ════ */}
+            {currentView === 'ondemand' && (
+              <>
+                <div className="ad-view-header">
+                  <p>Custom Scoping &amp; Quoting</p>
+                  <h1>⚡ On-Demand Project Desk</h1>
+                  <p style={{ color: '#888', fontSize: 13, marginTop: 4 }}>
+                    Review bespoke client briefs submitted with <b>₹100 advance deposit</b>, evaluate requirements &amp; issue custom milestone quotes.
+                  </p>
+                </div>
+
+                {(() => {
+                  const pendingQuoteOrders = orders.filter(o => ['on_demand_review', 'pending_advance'].includes(o.status) || (o.tier === 'custom' && o.status === 'pending_payment'));
+                  const quotedOrders = orders.filter(o => o.status === 'quote_provided' || (o.tier === 'custom' && !['on_demand_review', 'pending_advance'].includes(o.status)));
+                  const allCustom = orders.filter(o => o.tier === 'custom' || ['on_demand_review', 'pending_advance', 'quote_provided'].includes(o.status));
+
+                  return (
+                    <div>
+                      {/* Sub Tabs */}
+                      <div className="ad-assign-tabs">
+                        <button
+                          className={`ad-assign-tab-btn ${onDemandTab === 'pending' ? 'active' : ''}`}
+                          onClick={() => setOnDemandTab('pending')}
+                        >
+                          <span>⚡ Awaiting Price Quote</span>
+                          <span className="ad-assign-tab-badge">{pendingQuoteOrders.length}</span>
+                        </button>
+                        <button
+                          className={`ad-assign-tab-btn ${onDemandTab === 'quoted' ? 'active' : ''}`}
+                          onClick={() => setOnDemandTab('quoted')}
+                        >
+                          <span>📋 Quoted &amp; In-Flight Custom Projects</span>
+                          <span className="ad-assign-tab-badge">{quotedOrders.length}</span>
+                        </button>
+                        <button
+                          className={`ad-assign-tab-btn ${onDemandTab === 'all' ? 'active' : ''}`}
+                          onClick={() => setOnDemandTab('all')}
+                        >
+                          <span>📁 All Custom Inquiries</span>
+                          <span className="ad-assign-tab-badge">{allCustom.length}</span>
+                        </button>
+                      </div>
+
+                      {/* Display Orders */}
+                      {onDemandTab === 'pending' && (
+                        <div>
+                          {pendingQuoteOrders.length === 0 ? (
+                            <div className="ad-assign-empty-card">
+                              <div style={{ fontSize: 36, marginBottom: 12 }}>✨</div>
+                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>No pending custom requests awaiting quote!</h3>
+                              <p style={{ color: '#888', fontSize: 14, maxWidth: 460, margin: '0 auto 16px' }}>
+                                All incoming bespoke client requirements have been priced and quoted. New custom orders submitted with ₹100 advance will appear here in real-time.
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="ad-qc-grid">
+                              {pendingQuoteOrders.map(o => (
+                                <div className="ad-qc-card" key={o.id} style={{ borderLeft: '4px solid #f59e0b' }}>
+                                  <div className="ad-qc-header">
+                                    <div>
+                                      <h3 style={{ margin: 0, fontSize: 16 }}>Custom Order #WN-{o.id}</h3>
+                                      <small style={{ color: '#888', fontSize: 12 }}>{o.serviceCategory}</small>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                      <span className="ad-ondemand-token-pill">₹100 Advance Paid ✓</span>
+                                    </div>
+                                  </div>
+
+                                  <div style={{ margin: '14px 0', background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                                    <label className="ad-form-label" style={{ marginBottom: 4 }}>Client Project Brief &amp; Scope Requirements</label>
+                                    <div style={{ fontSize: 13, color: '#334155', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+                                      {o.description || 'No detailed brief text provided.'}
+                                    </div>
+                                  </div>
+
+                                  {o.submissionLink && (
+                                    <div style={{ marginBottom: 14 }}>
+                                      <label className="ad-form-label" style={{ marginBottom: 4 }}>Raw Assets &amp; Drive Repository</label>
+                                      <a
+                                        href={o.submissionLink}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        style={{ color: '#2563eb', fontSize: 13, fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                                      >
+                                        📁 Open Client Assets Link ↗
+                                      </a>
+                                    </div>
+                                  )}
+
+                                  <div className="ad-assign-order-meta" style={{ marginBottom: 16 }}>
+                                    <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b> ({o.client?.email})</span>
+                                    <span>Status: <b style={{ color: '#d97706', background: '#fef3c7', padding: '2px 8px', borderRadius: 6 }}>AWAITING QUOTE</b></span>
+                                  </div>
+
+                                  <div className="ad-qc-actions" style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                      className="ad-btn-primary"
+                                      style={{ flex: 1, background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}
+                                      onClick={() => {
+                                        setQuoteOrder(o);
+                                        setQuotePriceInput(o.price > 100 ? o.price : 15000);
+                                        setQuoteCategoryInput(o.serviceCategory);
+                                        setQuoteTierInput(o.tier || 'custom');
+                                        setQuoteNotesInput(o.adminRevisionComments || '');
+                                      }}
+                                    >
+                                      📋 Set Price &amp; Demand Payment
+                                    </button>
+                                    <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Quoted and active custom tabs */}
+                      {(onDemandTab === 'quoted' || onDemandTab === 'all') && (
+                        <div>
+                          {(onDemandTab === 'quoted' ? quotedOrders : allCustom).length === 0 ? (
+                            <div className="ad-assign-empty-card">
+                              <p style={{ color: '#888' }}>No custom projects in this view.</p>
+                            </div>
+                          ) : (
+                            <div className="ad-qc-grid">
+                              {(onDemandTab === 'quoted' ? quotedOrders : allCustom).map(o => (
+                                <div className="ad-qc-card" key={o.id}>
+                                  <div className="ad-qc-header">
+                                    <div>
+                                      <h3 style={{ margin: 0, fontSize: 16 }}>Custom Order #WN-{o.id}</h3>
+                                      <small style={{ color: '#888', fontSize: 12 }}>{o.serviceCategory}</small>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                      <b style={{ fontSize: 16, color: '#16a34a' }}>₹{o.price.toLocaleString()}</b>
+                                      <div style={{ fontSize: 11, color: '#888' }}>Paid: ₹{(o.amountPaid || 0).toLocaleString()}</div>
+                                    </div>
+                                  </div>
+
+                                  <p className="ad-qc-brief">{o.description || 'No brief specified.'}</p>
+                                  {o.adminRevisionComments && (
+                                    <div style={{ fontSize: 12, background: '#f1f5f9', padding: 8, borderRadius: 6, margin: '8px 0', color: '#475569' }}>
+                                      <b>Admin Scope Note:</b> {o.adminRevisionComments}
+                                    </div>
+                                  )}
+
+                                  <div className="ad-assign-order-meta" style={{ marginBottom: 14 }}>
+                                    <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
+                                    <span>Status: <b className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</b></span>
+                                  </div>
+
+                                  <div className="ad-qc-actions" style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                      className="ad-pag-btn"
+                                      style={{ flex: 1 }}
+                                      onClick={() => {
+                                        setQuoteOrder(o);
+                                        setQuotePriceInput(o.price);
+                                        setQuoteCategoryInput(o.serviceCategory);
+                                        setQuoteTierInput(o.tier || 'custom');
+                                        setQuoteNotesInput(o.adminRevisionComments || '');
+                                      }}
+                                    >
+                                      ✏️ Update Quote Price
+                                    </button>
+                                    <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
+                                    {!o.freelancerId && ['paid', 'paid_50', 'paid_75'].includes(o.status) && (
+                                      <button
+                                        className="ad-btn-primary"
+                                        onClick={() => {
+                                          setAssigningOrder(o);
+                                          setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
+                                          setSelectedFreelancerId(o.freelancerId || '');
+                                        }}
+                                      >
+                                        🎯 Assign Specialist
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </>
+            )}
+
             {/* ════ VIEW: ASSIGN DESK ════ */}
             {currentView === 'assign' && (
               <>
@@ -1052,103 +1356,211 @@ export default function AdminDashboard() {
                   </p>
                 </div>
 
-                {orders.filter(o => o.status === 'paid').length === 0 ? (
-                  <p style={{ color: '#888', textAlign: 'center', padding: 40 }}>All paid orders successfully assigned to freelancers!</p>
-                ) : (
-                  (() => {
-                    // Group paid orders by service category
-                    const paidOrders = orders.filter(o => o.status === 'paid');
-                    const grouped: Record<string, typeof paidOrders> = {};
-                    paidOrders.forEach(o => {
-                      const cat = o.serviceCategory || 'Uncategorized';
-                      if (!grouped[cat]) grouped[cat] = [];
-                      grouped[cat].push(o);
-                    });
-                    return (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-                        {Object.entries(grouped).map(([category, catOrders]) => {
-                          // Freelancers who have this category in their services
-                          const matchedFreelancers = freelancers.filter(f =>
-                            (f.services || []).some(s =>
-                              s.toLowerCase().includes(category.toLowerCase()) ||
-                              category.toLowerCase().includes(s.toLowerCase())
-                            )
-                          );
-                          return (
-                            <div key={category} className="ad-assign-category-group">
-                              {/* Category header */}
-                              <div className="ad-assign-cat-header">
-                                <div className="ad-assign-cat-title">
-                                  <span className="ad-assign-cat-icon">📂</span>
-                                  <span>{category}</span>
-                                  <span className="ad-assign-cat-badge">{catOrders.length} order{catOrders.length > 1 ? 's' : ''}</span>
-                                </div>
-                                <div className="ad-assign-cat-meta">
-                                  {matchedFreelancers.length > 0 ? (
-                                    <span className="ad-assign-match-pill matched">
-                                      ✓ {matchedFreelancers.length} matched freelancer{matchedFreelancers.length > 1 ? 's' : ''}
-                                    </span>
-                                  ) : (
-                                    <span className="ad-assign-match-pill none">⚠ No matched freelancers</span>
-                                  )}
-                                </div>
-                              </div>
+                {(() => {
+                  const unassignedOrders = orders.filter(o => !o.freelancerId && ['paid', 'paid_50', 'paid_75', 'pending_payment'].includes(o.status));
+                  const assignedOrders = orders.filter(o => Boolean(o.freelancerId) || ['assigned', 'midpoint_submitted', 'midpoint_approved', 'submitted', 'qa_approved', 'revision_requested'].includes(o.status));
 
-                              {/* Matched freelancer chips */}
-                              {matchedFreelancers.length > 0 && (
-                                <div className="ad-assign-freelancer-chips">
-                                  {matchedFreelancers.map(f => (
-                                    <div key={f.id} className="ad-assign-freelancer-chip">
-                                      <span className="ad-assign-chip-avatar">{f.name.charAt(0).toUpperCase()}</span>
-                                      <div>
-                                        <div className="ad-assign-chip-name">{f.name}</div>
-                                        <div className="ad-assign-chip-skills">
-                                          {(f.services || []).slice(0, 3).join(' · ')}
+                  return (
+                    <div>
+                      {/* Sub Tabs */}
+                      <div className="ad-assign-tabs">
+                        <button
+                          className={`ad-assign-tab-btn ${assignDeskTab === 'pending' ? 'active' : ''}`}
+                          onClick={() => setAssignDeskTab('pending')}
+                        >
+                          <span>🎯 Awaiting Assignment</span>
+                          <span className="ad-assign-tab-badge">{unassignedOrders.length}</span>
+                        </button>
+                        <button
+                          className={`ad-assign-tab-btn ${assignDeskTab === 'assigned' ? 'active' : ''}`}
+                          onClick={() => setAssignDeskTab('assigned')}
+                        >
+                          <span>👥 Active Specialist Tasks</span>
+                          <span className="ad-assign-tab-badge">{assignedOrders.length}</span>
+                        </button>
+                      </div>
+
+                      {/* TAB 1: PENDING ASSIGNMENT */}
+                      {assignDeskTab === 'pending' && (
+                        <div>
+                          {unassignedOrders.length === 0 ? (
+                            <div className="ad-assign-empty-card">
+                              <div style={{ fontSize: 36, marginBottom: 12 }}>🎉</div>
+                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>All active client orders are assigned!</h3>
+                              <p style={{ color: '#888', fontSize: 14, maxWidth: 440, margin: '0 auto 16px' }}>
+                                There are currently no unassigned paid projects. Switch to the "Active Specialist Tasks" tab to review or reassign ongoing deliverables.
+                              </p>
+                              <button className="ad-btn-secondary" onClick={() => setAssignDeskTab('assigned')}>
+                                View Active Assigned Tasks ({assignedOrders.length})
+                              </button>
+                            </div>
+                          ) : (
+                            (() => {
+                              // Group unassigned orders by service category
+                              const grouped: Record<string, typeof unassignedOrders> = {};
+                              unassignedOrders.forEach(o => {
+                                const cat = o.serviceCategory || 'Uncategorized';
+                                if (!grouped[cat]) grouped[cat] = [];
+                                grouped[cat].push(o);
+                              });
+
+                              return (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
+                                  {Object.entries(grouped).map(([category, catOrders]) => {
+                                    // Freelancers who have this category in their services
+                                    const matchedFreelancers = freelancers.filter(f =>
+                                      (f.services || []).some(s =>
+                                        s.toLowerCase().includes(category.toLowerCase()) ||
+                                        category.toLowerCase().includes(s.toLowerCase())
+                                      )
+                                    );
+
+                                    return (
+                                      <div key={category} className="ad-assign-category-group">
+                                        {/* Category header */}
+                                        <div className="ad-assign-cat-header">
+                                          <div className="ad-assign-cat-title">
+                                            <span className="ad-assign-cat-icon">📂</span>
+                                            <span>{category}</span>
+                                            <span className="ad-assign-cat-badge">{catOrders.length} unassigned order{catOrders.length > 1 ? 's' : ''}</span>
+                                          </div>
+                                          <div className="ad-assign-cat-meta">
+                                            {matchedFreelancers.length > 0 ? (
+                                              <span className="ad-assign-match-pill matched">
+                                                ✓ {matchedFreelancers.length} matched specialist{matchedFreelancers.length > 1 ? 's' : ''}
+                                              </span>
+                                            ) : (
+                                              <span className="ad-assign-match-pill none">
+                                                ⚠ {freelancers.length > 0 ? 'No exact keyword match (all freelancers available in dropdown)' : 'No freelancers registered'}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+
+                                        {/* Matched freelancer chips */}
+                                        {matchedFreelancers.length > 0 ? (
+                                          <div className="ad-assign-freelancer-chips">
+                                            {matchedFreelancers.map(f => (
+                                              <div key={f.id} className="ad-assign-freelancer-chip">
+                                                <span className="ad-assign-chip-avatar">{f.name.charAt(0).toUpperCase()}</span>
+                                                <div>
+                                                  <div className="ad-assign-chip-name">{f.name}</div>
+                                                  <div className="ad-assign-chip-skills">
+                                                    {(f.services || []).slice(0, 3).join(' · ')}
+                                                  </div>
+                                                </div>
+                                                <span className="ad-assign-chip-matched">Expert ✓</span>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        ) : freelancers.length === 0 ? (
+                                          <div style={{ padding: '12px 18px', background: '#fef2f2', borderBottom: '1px solid #fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <span style={{ fontSize: 13, color: '#991b1b' }}>⚠️ No freelancers found in the system roster.</span>
+                                            <button className="ad-btn-primary" style={{ padding: '6px 14px', fontSize: 12 }} onClick={() => setOnboardingOpen(true)}>+ Quick Onboard Freelancer</button>
+                                          </div>
+                                        ) : null}
+
+                                        {/* Order cards in this category */}
+                                        <div className="ad-qc-grid">
+                                          {catOrders.map(o => (
+                                            <div className="ad-qc-card" key={o.id}>
+                                              <div className="ad-qc-header">
+                                                <div>
+                                                  <h3 style={{ margin: 0, fontSize: 16 }}>Order #WN-{o.id}</h3>
+                                                  <small style={{ color: '#888', fontSize: 12 }}>{o.serviceCategory}</small>
+                                                </div>
+                                                <div style={{ textAlign: 'right' }}>
+                                                  <b style={{ fontSize: 16, color: '#16a34a' }}>₹{o.price.toLocaleString()}</b>
+                                                  <div style={{ fontSize: 11, color: '#888' }}>Tier: {o.tier?.toUpperCase() || 'STANDARD'}</div>
+                                                </div>
+                                              </div>
+                                              <p className="ad-qc-brief">{o.description || 'No brief details provided.'}</p>
+                                              <div className="ad-assign-order-meta">
+                                                <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
+                                                <span>Status: <b className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</b></span>
+                                              </div>
+                                              <div className="ad-qc-actions">
+                                                <button
+                                                  className="ad-btn-primary"
+                                                  onClick={() => {
+                                                    setAssigningOrder(o);
+                                                    setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
+                                                    setSelectedFreelancerId(
+                                                      matchedFreelancers.length === 1
+                                                        ? matchedFreelancers[0].id
+                                                        : (freelancers.length === 1 ? freelancers[0].id : '')
+                                                    );
+                                                  }}
+                                                >
+                                                  🎯 Assign Task to Freelancer
+                                                </button>
+                                              </div>
+                                            </div>
+                                          ))}
                                         </div>
                                       </div>
-                                      <span className="ad-assign-chip-matched">Expert ✓</span>
-                                    </div>
-                                  ))}
+                                    );
+                                  })}
                                 </div>
-                              )}
+                              );
+                            })()
+                          )}
+                        </div>
+                      )}
 
-                              {/* Order cards in this category */}
-                              <div className="ad-qc-grid">
-                                {catOrders.map(o => (
-                                  <div className="ad-qc-card" key={o.id}>
-                                    <div className="ad-qc-header">
-                                      <h3>Order #WN-{o.id}</h3>
-                                      <b>₹{o.price.toLocaleString()}</b>
-                                    </div>
-                                    <p className="ad-qc-brief">{o.description || 'No brief provided.'}</p>
-                                    <div className="ad-assign-order-meta">
-                                      <span>Tier: <b>{o.tier || 'Standard'}</b></span>
-                                      <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
-                                    </div>
-                                    <div className="ad-qc-actions">
-                                      <button
-                                        className="ad-btn-primary"
-                                        onClick={() => {
-                                          setAssigningOrder(o);
-                                          setPayoutAmount(Math.floor(o.price * 0.7));
-                                          setSelectedFreelancerId(
-                                            matchedFreelancers.length === 1 ? matchedFreelancers[0].id : ''
-                                          );
-                                        }}
-                                      >
-                                        🎯 Assign to Freelancer
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
+                      {/* TAB 2: ACTIVE ASSIGNMENTS */}
+                      {assignDeskTab === 'assigned' && (
+                        <div>
+                          {assignedOrders.length === 0 ? (
+                            <div className="ad-assign-empty-card">
+                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>No tasks currently in production</h3>
+                              <p style={{ color: '#888', fontSize: 14 }}>Assign tasks from the "Awaiting Assignment" tab to start production.</p>
                             </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })()
-                )}
+                          ) : (
+                            <div className="ad-qc-grid">
+                              {assignedOrders.map(o => (
+                                <div className="ad-qc-card" key={o.id}>
+                                  <div className="ad-qc-header">
+                                    <div>
+                                      <h3>Order #WN-{o.id}</h3>
+                                      <small style={{ color: '#888' }}>{o.serviceCategory} ({o.tier?.toUpperCase() || 'STANDARD'})</small>
+                                    </div>
+                                    <span className="ad-assign-assigned-badge">
+                                      👤 {o.freelancer?.name || `Specialist #${o.freelancerId}`}
+                                    </span>
+                                  </div>
+                                  <p className="ad-qc-brief">{o.description || 'No brief provided.'}</p>
+                                  <div className="ad-assign-order-meta">
+                                    <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
+                                    <span>Agreed Payout: <b>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></span>
+                                  </div>
+                                  <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                    <span className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</span>
+                                    {o.midpointSubmissionLink && <span style={{ fontSize: 12, color: '#16a34a' }}>✓ 50% Midpoint uploaded</span>}
+                                  </div>
+                                  <div className="ad-qc-actions" style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                      className="ad-btn-primary"
+                                      style={{ flex: 1 }}
+                                      onClick={() => {
+                                        setAssigningOrder(o);
+                                        setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
+                                        setSelectedFreelancerId(o.freelancerId || '');
+                                      }}
+                                    >
+                                      🔄 Re-assign Specialist
+                                    </button>
+                                    <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </>
             )}
 
@@ -1251,13 +1663,32 @@ export default function AdminDashboard() {
                     </thead>
                     <tbody>
                       {filteredClientRows.map(c => (
-                        <tr key={c.email}>
-                          <td><b>🏢 {c.name}</b></td>
+                        <tr
+                          key={c.email}
+                          onClick={() => setSelectedClientModal(c)}
+                          style={{ cursor: 'pointer' }}
+                          title="Click row to inspect enterprise client profile, projects & activity history"
+                        >
+                          <td>
+                            <button
+                              className="ad-client-link"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedClientModal(c);
+                              }}
+                            >
+                              🏢 {c.name} <span style={{ fontSize: 11, color: '#2563eb' }}>↗</span>
+                            </button>
+                          </td>
                           <td>{c.email} · {c.phone}</td>
                           <td>{c.totalOrders} Orders</td>
                           <td>{c.activeTasks} Active</td>
                           <td><b>₹{c.ltv.toLocaleString('en-IN')}</b></td>
-                          <td><span className={c.status === 'Active' ? 'ad-status-dot-active' : 'ad-status-dot-dormant'}>{c.status}</span></td>
+                          <td>
+                            <span className={c.status === 'Active' ? 'ad-status-dot-active' : c.status === 'Suspended' ? 'ad-status-dot-dormant' : 'ad-status-dot-dormant'}>
+                              {c.status}
+                            </span>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -2179,88 +2610,115 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <form id="assignForm" onSubmit={handleAssignOrder}>
-                  <div className="ad-form-row">
-                    <label className="ad-form-label">
-                      Select Freelancer
-                      {matchedFreelancers.length > 0 && (
-                        <span className="ad-assign-match-pill matched" style={{ marginLeft: 10 }}>
-                          ✓ {matchedFreelancers.length} expert{matchedFreelancers.length > 1 ? 's' : ''} matched
-                        </span>
-                      )}
-                    </label>
-                    <select
-                      className="ad-form-select"
-                      value={selectedFreelancerId}
-                      onChange={e => setSelectedFreelancerId(e.target.value === '' ? '' : Number(e.target.value))}
-                      required
+                {assigningOrder.description && (
+                  <div style={{ marginBottom: 16, background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: '#475569' }}>
+                    <div style={{ fontWeight: 700, fontSize: 11, textTransform: 'uppercase', color: '#94a3b8', marginBottom: 4 }}>Task Brief</div>
+                    <div style={{ maxHeight: 80, overflowY: 'auto', lineHeight: 1.4 }}>{assigningOrder.description}</div>
+                  </div>
+                )}
+
+                {freelancers.length === 0 ? (
+                  <div style={{ padding: 16, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, textAlign: 'center', margin: '16px 0' }}>
+                    <p style={{ color: '#991b1b', fontSize: 14, margin: '0 0 10px', fontWeight: 600 }}>⚠️ No freelancers found in the platform roster.</p>
+                    <button
+                      type="button"
+                      className="ad-btn-primary"
+                      onClick={() => {
+                        setAssigningOrder(null);
+                        setOnboardingOpen(true);
+                      }}
                     >
-                      <option value="">— Choose a freelancer —</option>
-
-                      {/* Matched by expertise — shown first */}
-                      {matchedFreelancers.length > 0 && (
-                        <optgroup label={`✓ Matched for "${category}" (${matchedFreelancers.length})`}>
-                          {matchedFreelancers.map(f => (
-                            <option key={f.id} value={f.id}>
-                              {f.name} · {(f.services || []).slice(0, 2).join(', ')}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-
-                      {/* Other freelancers — different expertise */}
-                      {otherFreelancers.length > 0 && (
-                        <optgroup label={`Other Freelancers (${otherFreelancers.length})`}>
-                          {otherFreelancers.map(f => (
-                            <option key={f.id} value={f.id}>
-                              {f.name} · {(f.services || []).slice(0, 2).join(', ') || 'No expertise listed'}
-                            </option>
-                          ))}
-                        </optgroup>
-                      )}
-                    </select>
-
-                    {/* Show selected freelancer's expertise tags */}
-                    {selectedFreelancerId !== '' && (() => {
-                      const sel = freelancers.find(f => f.id === selectedFreelancerId);
-                      if (!sel) return null;
-                      const isMatch = matchedFreelancers.includes(sel);
-                      return (
-                        <div className="ad-assign-selected-info">
-                          <span className={`ad-assign-match-pill ${isMatch ? 'matched' : 'other'}`}>
-                            {isMatch ? '✓ Expertise matches this task' : '⚠ Expertise may not match'}
+                      + Onboard First Freelancer
+                    </button>
+                  </div>
+                ) : (
+                  <form id="assignForm" onSubmit={handleAssignOrder}>
+                    <div className="ad-form-row">
+                      <label className="ad-form-label">
+                        Select Freelancer Specialist
+                        {matchedFreelancers.length > 0 && (
+                          <span className="ad-assign-match-pill matched" style={{ marginLeft: 10 }}>
+                            ✓ {matchedFreelancers.length} expert{matchedFreelancers.length > 1 ? 's' : ''} matched
                           </span>
-                          <div className="ad-assign-selected-tags">
-                            {(sel.services || []).map(s => (
-                              <span key={s} className={`ad-assign-tag ${s.toLowerCase().includes(category.toLowerCase()) || category.toLowerCase().includes(s.toLowerCase()) ? 'highlight' : ''}`}>
-                                {s}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
+                        )}
+                      </label>
+                      <select
+                        className="ad-form-select"
+                        value={selectedFreelancerId}
+                        onChange={e => setSelectedFreelancerId(e.target.value === '' ? '' : Number(e.target.value))}
+                        required
+                      >
+                        <option value="">— Choose a freelancer —</option>
 
-                  <div className="ad-form-row">
-                    <label className="ad-form-label">Freelancer Payout Fee (₹)</label>
-                    <input
-                      className="ad-form-input"
-                      type="number"
-                      value={payoutAmount}
-                      onChange={e => setPayoutAmount(Number(e.target.value))}
-                      max={assigningOrder.price}
-                      required
-                    />
-                    <small style={{ color: '#888', display: 'block', marginTop: 4 }}>
-                      Client paid ₹{assigningOrder.price.toLocaleString()} · Suggested: ₹{Math.floor(assigningOrder.price * 0.7).toLocaleString()} (70%)
-                    </small>
-                  </div>
-                </form>
-              </div>
-              <div className="ad-modal-footer">
-                <button className="ad-btn-secondary" onClick={() => setAssigningOrder(null)}>Cancel</button>
-                <button className="ad-btn-primary" form="assignForm" type="submit">🎯 Assign Task</button>
+                        {/* Matched by expertise — shown first */}
+                        {matchedFreelancers.length > 0 && (
+                          <optgroup label={`✓ Matched for "${category}" (${matchedFreelancers.length})`}>
+                            {matchedFreelancers.map(f => (
+                              <option key={f.id} value={f.id}>
+                                {f.name} · {(f.services || []).slice(0, 2).join(', ')} ({f.email})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+
+                        {/* Other freelancers — different expertise */}
+                        {otherFreelancers.length > 0 && (
+                          <optgroup label={`Other Freelancers (${otherFreelancers.length})`}>
+                            {otherFreelancers.map(f => (
+                              <option key={f.id} value={f.id}>
+                                {f.name} · {(f.services || []).slice(0, 2).join(', ') || 'General Specialist'} ({f.email})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+
+                      {/* Show selected freelancer's expertise tags */}
+                      {selectedFreelancerId !== '' && (() => {
+                        const sel = freelancers.find(f => f.id === selectedFreelancerId);
+                        if (!sel) return null;
+                        const isMatch = matchedFreelancers.includes(sel);
+                        return (
+                          <div className="ad-assign-selected-info">
+                            <span className={`ad-assign-match-pill ${isMatch ? 'matched' : 'other'}`}>
+                              {isMatch ? '✓ Verified expertise matches this category' : 'ℹ️ Assigned from general roster'}
+                            </span>
+                            <div className="ad-assign-selected-tags">
+                              {(sel.services || []).map(s => (
+                                <span key={s} className={`ad-assign-tag ${s.toLowerCase().includes(category.toLowerCase()) || category.toLowerCase().includes(s.toLowerCase()) ? 'highlight' : ''}`}>
+                                  {s}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+
+                    <div className="ad-form-row">
+                      <label className="ad-form-label">Freelancer Agreed Payout (₹)</label>
+                      <input
+                        className="ad-form-input"
+                        type="number"
+                        min="0"
+                        value={payoutAmount}
+                        onChange={e => setPayoutAmount(Number(e.target.value))}
+                        max={assigningOrder.price}
+                        required
+                      />
+                      <small style={{ color: '#888', display: 'block', marginTop: 4 }}>
+                        Client paid ₹{assigningOrder.price.toLocaleString()} · Suggested: ₹{Math.floor(assigningOrder.price * 0.7).toLocaleString()} (70% margin)
+                      </small>
+                    </div>
+
+                    <div className="ad-modal-footer" style={{ padding: '16px 0 0', marginTop: 16, borderTop: '1px solid #f0f0ee' }}>
+                      <button type="button" className="ad-btn-secondary" onClick={() => setAssigningOrder(null)} disabled={isAssigning}>Cancel</button>
+                      <button className="ad-btn-primary" type="submit" disabled={isAssigning || !selectedFreelancerId}>
+                        {isAssigning ? 'Assigning Task...' : '🎯 Confirm & Assign Task'}
+                      </button>
+                    </div>
+                  </form>
+                )}
               </div>
             </div>
           </div>
@@ -2812,6 +3270,304 @@ export default function AdminDashboard() {
             <div className="ad-modal-footer">
               <button className="ad-btn-secondary" onClick={() => setEditPriceOrder(null)}>Cancel</button>
               <button className="ad-btn-primary" form="editPriceForm" type="submit">Save &amp; Sync Price to Client Portal</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ ON-DEMAND QUOTE DEMAND MODAL ═══════════ */}
+      {quoteOrder && (
+        <div className="ad-modal-overlay" onClick={() => !isQuoting && setQuoteOrder(null)}>
+          <div className="ad-modal" style={{ maxWidth: 580 }} onClick={e => e.stopPropagation()}>
+            <div className="ad-modal-header" style={{ borderBottom: '1px solid #e2e8f0' }}>
+              <div>
+                <h2 style={{ fontSize: 18, margin: 0 }}>⚡ Demand / Quote Custom Project Price</h2>
+                <small style={{ color: '#64748b' }}>Order #WN-{quoteOrder.id} · {quoteOrder.serviceCategory}</small>
+              </div>
+              <button className="ad-modal-close" onClick={() => !isQuoting && setQuoteOrder(null)}>×</button>
+            </div>
+            <div className="ad-modal-body">
+              {/* Client & Scoping Summary */}
+              <div style={{ background: '#f8fafc', padding: 14, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                    🏢 {quoteOrder.client?.name || `Client #${quoteOrder.clientId}`}
+                  </span>
+                  <span className="ad-ondemand-token-pill">₹100 Advance Paid ✓</span>
+                </div>
+                <div style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>
+                  <b>Client Email:</b> {quoteOrder.client?.email || 'N/A'}
+                </div>
+                <div style={{ fontSize: 12, color: '#475569', marginBottom: 6 }}>
+                  <b>Project Brief:</b> {quoteOrder.description || 'No brief provided.'}
+                </div>
+                {quoteOrder.submissionLink && (
+                  <div style={{ fontSize: 12 }}>
+                    <b>Assets Link:</b>{' '}
+                    <a href={quoteOrder.submissionLink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                      {quoteOrder.submissionLink} ↗
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              <form id="quoteDemandForm" onSubmit={handleQuoteSubmit}>
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Total Custom Project Price Quote (₹ INR) *</label>
+                  <input
+                    className="ad-form-input"
+                    type="number"
+                    required
+                    min={100}
+                    step={100}
+                    placeholder="e.g. 25000"
+                    value={quotePriceInput || ''}
+                    onChange={e => setQuotePriceInput(Number(e.target.value))}
+                    style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}
+                  />
+                  <div style={{ marginTop: 6, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {[5000, 15000, 25000, 45000, 75000, 120000].map(amt => (
+                      <button
+                        key={amt}
+                        type="button"
+                        className="ad-assign-tag"
+                        onClick={() => setQuotePriceInput(amt)}
+                      >
+                        ₹{amt.toLocaleString()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Milestone breakdown calculation preview */}
+                {quotePriceInput > 0 && (
+                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', padding: 12, borderRadius: 8, marginBottom: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 4 }}>
+                      💰 Automatic 3-Stage Escrow Milestone Schedule:
+                    </div>
+                    <div style={{ fontSize: 12, color: '#047857', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                      <div><b>M1 (50% Kickoff):</b> ₹{Math.round(quotePriceInput * 0.5).toLocaleString()}</div>
+                      <div><b>M2 (25% Midpoint):</b> ₹{Math.round(quotePriceInput * 0.25).toLocaleString()}</div>
+                      <div><b>M3 (25% Delivery):</b> ₹{Math.round(quotePriceInput * 0.25).toLocaleString()}</div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Admin Scope Breakdown &amp; Deliverables Note</label>
+                  <textarea
+                    className="ad-form-textarea"
+                    rows={3}
+                    placeholder="Provide scope details, estimated delivery turnaround, tech stack, and key deliverables for the client..."
+                    value={quoteNotesInput}
+                    onChange={e => setQuoteNotesInput(e.target.value)}
+                  />
+                </div>
+              </form>
+            </div>
+            <div className="ad-modal-footer">
+              <button className="ad-btn-secondary" disabled={isQuoting} onClick={() => setQuoteOrder(null)}>
+                Cancel
+              </button>
+              <button
+                className="ad-btn-primary"
+                form="quoteDemandForm"
+                type="submit"
+                disabled={isQuoting || quotePriceInput <= 0}
+                style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}
+              >
+                {isQuoting ? 'Sending Quote...' : `📋 Send Quote & Demand Payment (₹${(quotePriceInput || 0).toLocaleString()})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ═══════════ CLIENT DOSSIER & PROFILE MODAL ═══════════ */}
+      {selectedClientModal && (
+        <div className="ad-modal-overlay" onClick={() => setSelectedClientModal(null)}>
+          <div className="ad-modal" style={{ maxWidth: 840, width: '92%' }} onClick={e => e.stopPropagation()}>
+            <div className="ad-modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="ad-dossier-avatar">
+                  {getInitials(selectedClientModal.name)}
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 20 }}>🏢 {selectedClientModal.name}</h2>
+                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                    Client ID #{selectedClientModal.id || 'N/A'} · Registered Client
+                  </div>
+                </div>
+              </div>
+              <button className="ad-modal-close" onClick={() => setSelectedClientModal(null)}>×</button>
+            </div>
+
+            <div className="ad-modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+              {/* Contact and Status Header Bar */}
+              <div className="ad-dossier-header-bar">
+                <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Email Address</span>
+                    <strong style={{ fontSize: 13, color: '#1e293b' }}>{selectedClientModal.email}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Phone / WhatsApp</span>
+                    <strong style={{ fontSize: 13, color: '#1e293b' }}>{selectedClientModal.phone}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Account Status</span>
+                    <span className={selectedClientModal.status === 'Active' ? 'ad-status-dot-active' : 'ad-status-dot-dormant'} style={{ display: 'inline-block', marginTop: 2 }}>
+                      {selectedClientModal.status}
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <button
+                    className="ad-pag-btn"
+                    style={{
+                      borderColor: selectedClientModal.status === 'Active' ? '#fca5a5' : '#86efac',
+                      color: selectedClientModal.status === 'Active' ? '#dc2626' : '#16a34a',
+                      fontWeight: 700,
+                    }}
+                    onClick={() => handleToggleClientStatus(selectedClientModal.id, selectedClientModal.status)}
+                  >
+                    {selectedClientModal.status === 'Active' ? '🚫 Suspend Account' : '✓ Activate Account'}
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 Financial & Project KPIs */}
+              <div className="ad-dossier-kpis">
+                <div className="ad-dossier-kpi">
+                  <small>Lifetime Value (LTV)</small>
+                  <strong style={{ color: '#16a34a' }}>₹{selectedClientModal.ltv.toLocaleString('en-IN')}</strong>
+                </div>
+                <div className="ad-dossier-kpi">
+                  <small>Total Orders Placed</small>
+                  <strong>{selectedClientModal.totalOrders}</strong>
+                </div>
+                <div className="ad-dossier-kpi">
+                  <small>Active Tasks</small>
+                  <strong style={{ color: '#2563eb' }}>{selectedClientModal.activeTasks}</strong>
+                </div>
+                <div className="ad-dossier-kpi">
+                  <small>Completed Deliverables</small>
+                  <strong style={{ color: '#7c3aed' }}>{selectedClientModal.completedTasks}</strong>
+                </div>
+              </div>
+
+              {/* Complete Projects & Orders History Table */}
+              <div>
+                <h3 style={{ fontSize: 15, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>📦 Project Portfolio &amp; Activity History ({selectedClientModal.totalOrders})</span>
+                </h3>
+
+                {(() => {
+                  const clientOrders = orders.filter(
+                    o => (o.client?.email && o.client.email.toLowerCase() === selectedClientModal.email.toLowerCase()) || o.clientId === selectedClientModal.id
+                  );
+
+                  if (clientOrders.length === 0) {
+                    return (
+                      <div className="ad-assign-empty-card" style={{ padding: '24px 16px' }}>
+                        <p style={{ color: '#888', margin: 0, fontSize: 13 }}>No orders recorded for this client yet.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="ad-table-wrap">
+                      <table className="ad-table" style={{ fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th>Order ID</th>
+                            <th>Category &amp; Tier</th>
+                            <th>Status</th>
+                            <th>Price / Paid</th>
+                            <th>Assigned Specialist</th>
+                            <th>Intake / Asset Link</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {clientOrders.map(ord => (
+                            <tr key={ord.id}>
+                              <td><b>#WN-{ord.id}</b></td>
+                              <td>
+                                <div><b>{ord.serviceCategory}</b></div>
+                                <small style={{ color: '#64748b' }}>Tier: {ord.tier?.toUpperCase() || 'STANDARD'}</small>
+                              </td>
+                              <td>
+                                <span className={`fd-status-pill ${ord.status}`}>
+                                  {ord.status.replace('_', ' ').toUpperCase()}
+                                </span>
+                              </td>
+                              <td>
+                                <b>₹{ord.price.toLocaleString()}</b>
+                                <div style={{ fontSize: 11, color: '#64748b' }}>Paid: ₹{(ord.amountPaid || 0).toLocaleString()}</div>
+                              </td>
+                              <td>
+                                {ord.freelancer ? (
+                                  <span style={{ fontWeight: 600, color: '#1e293b' }}>👨‍💻 {ord.freelancer.name}</span>
+                                ) : (
+                                  <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Unassigned</span>
+                                )}
+                              </td>
+                              <td>
+                                {ord.submissionLink ? (
+                                  <a href={ord.submissionLink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                                    Link ↗
+                                  </a>
+                                ) : (
+                                  <span style={{ color: '#94a3b8' }}>—</span>
+                                )}
+                              </td>
+                              <td>
+                                <button
+                                  className="ad-pag-btn"
+                                  style={{ padding: '4px 8px', fontSize: 11 }}
+                                  onClick={() => {
+                                    setSelectedClientModal(null);
+                                    setRelayOrder(ord);
+                                  }}
+                                >
+                                  💬 Chat
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className="ad-modal-footer" style={{ borderTop: '1px solid #e2e8f0' }}>
+              <button className="ad-btn-secondary" onClick={() => setSelectedClientModal(null)}>
+                Close Dossier
+              </button>
+              {(() => {
+                const clientOrders = orders.filter(
+                  o => (o.client?.email && o.client.email.toLowerCase() === selectedClientModal.email.toLowerCase()) || o.clientId === selectedClientModal.id
+                );
+                if (clientOrders.length > 0) {
+                  return (
+                    <button
+                      className="ad-btn-primary"
+                      onClick={() => {
+                        const targetOrder = clientOrders[0];
+                        setSelectedClientModal(null);
+                        setRelayOrder(targetOrder);
+                      }}
+                    >
+                      💬 Open Relay Chat with Client
+                    </button>
+                  );
+                }
+                return null;
+              })()}
             </div>
           </div>
         </div>

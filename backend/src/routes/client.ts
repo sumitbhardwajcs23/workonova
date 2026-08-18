@@ -240,6 +240,77 @@ clientApp.post('/orders/:id/approve-midpoint', async (c) => {
 // RAZORPAY PAYMENT GATEWAY ENDPOINTS (50% -> 25% -> 25% MILESTONES)
 // ═══════════════════════════════════════════════════════════════
 
+// ── POST Initiate Custom On-Demand Order (₹100 Advance Scoping Fee) ──
+clientApp.post('/custom-order/initiate', async (c) => {
+  try {
+    const user = c.get('user');
+    const body = await c.req.json();
+    const serviceCategory = sanitise(body.serviceCategory || 'Custom Project');
+    const description = sanitise(body.description || '');
+    const submissionLink = (body.submissionLink || '').trim();
+
+    if (!description) {
+      return c.json({ error: 'Please describe your project requirements and scope.' }, 400);
+    }
+
+    const rows = await db.insert(orders).values({
+      clientId: user.id,
+      serviceCategory,
+      tier: 'custom',
+      price: 100, // Initial token advance price
+      description,
+      submissionLink: submissionLink || null,
+      status: 'pending_advance',
+      milestoneStage: 0,
+      amountPaid: 0,
+    }).returning();
+
+    const orderRecord = rows[0];
+
+    // Create ₹100 Advance Razorpay order
+    const rzpResult = await createRazorpayOrder({
+      amount: 100,
+      currency: 'INR',
+      receipt: `WN-CUST-${orderRecord.id}-ADV100`,
+      notes: {
+        orderId: String(orderRecord.id),
+        type: 'custom_advance_100',
+        clientEmail: user.email,
+        category: serviceCategory,
+      },
+    });
+
+    if (!rzpResult.success || !rzpResult.order) {
+      return c.json({ error: rzpResult.error || 'Failed to generate payment gateway token' }, 500);
+    }
+
+    await db.update(orders).set({
+      razorpayOrderId: rzpResult.order.id,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(orders.id, orderRecord.id));
+
+    return c.json({
+      success: true,
+      orderId: orderRecord.id,
+      milestone: 0,
+      milestoneTitle: '₹100 Custom Scoping & Consultation Advance',
+      razorpayOrderId: rzpResult.order.id,
+      amount: rzpResult.order.amount,
+      currency: rzpResult.order.currency,
+      keyId: rzpResult.keyId,
+      serviceCategory: orderRecord.serviceCategory,
+      tier: 'custom',
+      client: {
+        name: user.name,
+        email: user.email,
+        phone: user.phone || '',
+      },
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // ── GET Razorpay Public Key ──
 clientApp.get('/razorpay/key', (c) => {
   return c.json({ keyId: getRazorpayKeyId() });
@@ -250,7 +321,7 @@ clientApp.post('/razorpay/create-order', async (c) => {
   try {
     const user = c.get('user');
     const body = await c.req.json();
-    const milestone = Number(body.milestone || 1); // 1 = 50%, 2 = 25%, 3 = 25%
+    const milestone = Number(body.milestone || 1); // 0 = ₹100 advance, 1 = 50%, 2 = 25%, 3 = 25%
     let orderRecord: any;
 
     if (body.orderId) {
@@ -283,7 +354,10 @@ clientApp.post('/razorpay/create-order', async (c) => {
     // Calculate milestone payment amount
     let milestoneAmount = 0;
     let milestoneTitle = '';
-    if (milestone === 1) {
+    if (milestone === 0 || orderRecord.status === 'pending_advance') {
+      milestoneAmount = 100;
+      milestoneTitle = '₹100 Custom Project Advance Token';
+    } else if (milestone === 1) {
       milestoneAmount = Math.round(orderRecord.price * 0.5); // 50% upfront
       milestoneTitle = 'Milestone 1 (50% Upfront Kickoff)';
     } else if (milestone === 2) {
@@ -370,6 +444,45 @@ clientApp.post('/razorpay/verify-payment', async (c) => {
     let newAmountPaid = targetOrder.amountPaid || 0;
     let milestoneTitle = '';
     let nextStepText = '';
+
+    if (currentMilestone === 0 || targetOrder.status === 'pending_advance') {
+      paidThisMilestone = 100;
+      newAmountPaid = 100;
+      newStatus = 'on_demand_review';
+      newMilestoneStage = 0;
+      milestoneTitle = '₹100 Advance Scoping Fee';
+      nextStepText = 'Brief received! Workonova Leadership will review scope requirements and issue a tailored project quote.';
+
+      const updated = await db.update(orders).set({
+        status: newStatus,
+        milestoneStage: newMilestoneStage,
+        amountPaid: newAmountPaid,
+        paymentId: razorpay_payment_id,
+        razorpayOrderId: razorpay_order_id,
+        updatedAt: new Date().toISOString(),
+      }).where(eq(orders.id, Number(orderId))).returning();
+
+      await db.insert(messages).values({
+        orderId: Number(orderId),
+        senderId: 0,
+        senderRole: 'admin',
+        messageText: `[SYSTEM] ✅ ₹100 Advance Token confirmed (Payment ID: ${razorpay_payment_id}). Workonova Leadership is reviewing your custom brief and will issue your tailored project quote shortly.`,
+      });
+
+      try {
+        await sendOrderUpdateEmail(
+          user.email,
+          user.name,
+          updated[0].id,
+          'Custom Project Brief Received (₹100 Advance Confirmed)',
+          `Your custom project request for ${updated[0].serviceCategory} has been submitted with ₹100 advance deposit. Our engineering & creative leads will review your brief and issue a customized milestone price quote.`
+        );
+      } catch (emailErr) {
+        console.error('Failed to send on-demand email:', emailErr);
+      }
+
+      return c.json({ data: updated[0], success: true });
+    }
 
     if (currentMilestone === 1) {
       paidThisMilestone = Math.round(targetOrder.price * 0.5);

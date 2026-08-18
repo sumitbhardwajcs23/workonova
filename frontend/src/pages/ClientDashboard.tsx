@@ -24,6 +24,7 @@ interface Order {
   payoutStatus?: string;
   paymentId?: string;
   razorpayOrderId?: string;
+  freelancerId?: number;
   createdAt: string;
   adminRevisionComments?: string;
 }
@@ -351,6 +352,42 @@ function ProjectCard({
           </div>
 
           {/* Actionable Stage Alert Buttons */}
+          {['on_demand_review', 'pending_advance'].includes(project.rawStatus || '') && (
+            <div style={{ marginTop: 14, background: 'rgba(245, 158, 11, 0.15)', border: '1px solid #f59e0b', borderRadius: 8, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <b style={{ fontSize: 13, color: '#fef3c7' }}>⚡ Custom Brief Under Scoping Review (₹100 Advance Paid ✓)</b>
+                <p style={{ margin: '3px 0 0 0', fontSize: 12, color: '#fde68a' }}>
+                  Workonova Leadership is evaluating your custom requirements. A customized price quote will be issued here shortly.
+                </p>
+              </div>
+              <button
+                className="cd-btn-primary"
+                style={{ padding: '8px 16px', fontSize: 12.5, fontWeight: 700, background: '#f59e0b', borderColor: '#d97706', color: '#111827' }}
+                onClick={onOpenThread}
+              >
+                💬 Discussion Thread
+              </button>
+            </div>
+          )}
+
+          {project.rawStatus === 'quote_provided' && (
+            <div style={{ marginTop: 14, background: 'rgba(99, 102, 241, 0.25)', border: '1px solid #818cf8', borderRadius: 8, padding: '14px 18px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <b style={{ fontSize: 14, color: '#ffffff' }}>🎉 Custom Scope Quoted: ₹{project.amount.toLocaleString('en-IN')}</b>
+                <p style={{ margin: '3px 0 0 0', fontSize: 12, color: '#c7d2fe' }}>
+                  Admin quote ready. Authorize 50% Kickoff milestone (₹{Math.round(project.amount * 0.5).toLocaleString('en-IN')}) to begin production.
+                </p>
+              </div>
+              <button
+                className="cd-btn-primary"
+                style={{ padding: '9px 18px', fontSize: 13, fontWeight: 700, background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', borderColor: '#4338ca' }}
+                onClick={onOpenApprove}
+              >
+                💳 Accept &amp; Pay 50% Kickoff (₹{Math.round(project.amount * 0.5).toLocaleString('en-IN')}) →
+              </button>
+            </div>
+          )}
+
           {project.rawStatus === 'midpoint_submitted' && (
             <div style={{ marginTop: 14, background: 'rgba(99, 102, 241, 0.2)', border: '1px solid #6366f1', borderRadius: 8, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
               <div>
@@ -544,6 +581,14 @@ export default function ClientDashboard() {
   const [feedbackRole, setFeedbackRole] = useState('');
   const [feedbackQuote, setFeedbackQuote] = useState('');
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+
+  // Custom On-Demand Order Modal States
+  const [customOrderModalOpen, setCustomOrderModalOpen] = useState(false);
+  const [customCategory, setCustomCategory] = useState(serviceCategories[0]);
+  const [customBrief, setCustomBrief] = useState('');
+  const [customLink, setCustomLink] = useState('');
+  const [customBudget, setCustomBudget] = useState('');
+  const [customSubmitting, setCustomSubmitting] = useState(false);
 
   // Modal fields
   const [newProjCategory, setNewProjCategory] = useState(serviceCategories[0]);
@@ -799,7 +844,10 @@ export default function ClientDashboard() {
 
       let status: 'Submitted' | 'In Progress' | 'In Review' | 'Delivered' | 'Cancelled' | 'Client Approved' = 'In Progress';
       let currentStep = 1;
-      if (o.status === 'pending_payment') { status = 'Submitted'; currentStep = 0; }
+      if (o.status === 'pending_advance') { status = 'Submitted'; currentStep = 0; }
+      else if (o.status === 'on_demand_review') { status = 'In Review'; currentStep = 0; }
+      else if (o.status === 'quote_provided') { status = 'In Review'; currentStep = 0; }
+      else if (o.status === 'pending_payment') { status = 'Submitted'; currentStep = 0; }
       else if (o.status === 'paid' || o.status === 'paid_50' || o.status === 'assigned') { status = 'In Progress'; currentStep = 1; }
       else if (o.status === 'midpoint_submitted' || o.status === 'midpoint_approved') { status = 'In Review'; currentStep = 2; }
       else if (o.status === 'paid_75' || o.status === 'submitted') { status = 'In Progress'; currentStep = 2; }
@@ -814,13 +862,13 @@ export default function ClientDashboard() {
       const formattedCreated = createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
       const formattedEst = estDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
       const deliverableLinks = o.qaApprovedLink ? [{ name: '🖼️ Download Final QA Assets', url: o.qaApprovedLink }] : (o.midpointSubmissionLink ? [{ name: '📁 Preview 50% Midpoint Work', url: o.midpointSubmissionLink }] : []);
-      const updates = [{ date: createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: 'Intake brief successfully submitted.' }];
-      if (o.adminRevisionComments) updates.unshift({ date: new Date().toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: `Revision requested: "${o.adminRevisionComments}"` });
+      const updates = [{ date: createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: o.status === 'on_demand_review' ? '₹100 Advance received. Custom scoping under review.' : 'Intake brief successfully submitted.' }];
+      if (o.adminRevisionComments) updates.unshift({ date: new Date().toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: o.status === 'quote_provided' ? `Custom Quote: ₹${o.price.toLocaleString('en-IN')} — ${o.adminRevisionComments}` : `Revision requested: "${o.adminRevisionComments}"` });
       if (o.midpointSubmissionLink) updates.unshift({ date: new Date().toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: `Specialist uploaded 50% Midpoint Deliverable.` });
 
       return {
         id: `db-${o.id}`, dbId: o.id, title: `${o.serviceCategory} - Order #${o.id}`, category,
-        freelancer: o.status === 'pending_payment' ? 'Not Assigned' : 'Workonova Specialist',
+        freelancer: ['pending_payment', 'pending_advance', 'on_demand_review', 'quote_provided'].includes(o.status) ? 'Not Assigned (Scoping)' : (o.freelancerId ? 'Workonova Specialist' : 'Workonova Specialist'),
         status, rawStatus: o.status,
         milestoneStage: o.milestoneStage || 1,
         amountPaid: o.amountPaid || 0,
@@ -840,6 +888,103 @@ export default function ClientDashboard() {
     });
 
     setAllProjects(mappedDbProjects);
+  };
+
+  // ── CREATE CUSTOM ON-DEMAND ORDER (₹100 ADVANCE SCOPING FEE) ──
+  const handleCreateCustomOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!customBrief.trim()) {
+      triggerToast('⚠️ Please provide your project requirements in the brief.');
+      return;
+    }
+    if (customLink.trim()) {
+      const drivePattern = /^(https?:\/\/)?(drive\.google\.com|dropbox\.com|.*\.dropbox\.com)\/.+$/;
+      if (!drivePattern.test(customLink.trim())) {
+        triggerToast('⚠️ Asset folder must be a valid Google Drive or Dropbox link.');
+        return;
+      }
+    }
+
+    setCustomSubmitting(true);
+    try {
+      // 1. Initialize ₹100 Advance Order on backend
+      const res = await fetch(`${API_BASE}/api/client/custom-order/initiate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          serviceCategory: customCategory,
+          description: customBrief + (customBudget ? `\n[Client Budget / Timeline Target: ${customBudget}]` : ''),
+          submissionLink: customLink.trim() || undefined
+        })
+      });
+      const rzpData = await res.json();
+      if (!res.ok) throw new Error(rzpData.error || 'Failed to initiate custom order');
+
+      const { orderId, razorpayOrderId, amount, currency, keyId } = rzpData;
+
+      // 2. Open Razorpay Checkout for ₹100 Advance
+      if (typeof window !== 'undefined' && (window as any).Razorpay) {
+        const options = {
+          key: keyId,
+          amount: amount,
+          currency: currency || 'INR',
+          name: 'WORKONOVA',
+          description: `${customCategory} — ₹100 Custom Scoping & Consultation Advance`,
+          image: '/assets/workonova-logo.webp',
+          order_id: razorpayOrderId,
+          prefill: {
+            name: user?.name || '',
+            email: user?.email || '',
+            contact: (user as any)?.phone || '',
+          },
+          theme: { color: '#6366f1' },
+          modal: {
+            ondismiss: function() {
+              setCustomSubmitting(false);
+              triggerToast('ℹ️ ₹100 Advance payment dismissed. Order saved in pending queue.');
+              fetchOrders(true);
+            }
+          },
+          handler: async function (response: any) {
+            try {
+              // 3. Verify payment for milestone 0 (₹100 advance)
+              const verifyRes = await fetch(`${API_BASE}/api/client/razorpay/verify-payment`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({
+                  orderId,
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                  milestone: 0
+                })
+              });
+              const verifyData = await verifyRes.json();
+              if (!verifyRes.ok) throw new Error(verifyData.error || 'Payment verification failed');
+
+              triggerToast('🎉 ₹100 Advance Paid! Workonova Leadership will review your brief and issue your quote.');
+              setCustomBrief('');
+              setCustomLink('');
+              setCustomBudget('');
+              setCustomOrderModalOpen(false);
+              fetchOrders();
+            } catch (err: any) {
+              triggerToast('❌ Verification error: ' + err.message);
+            } finally {
+              setCustomSubmitting(false);
+            }
+          }
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.open();
+      } else {
+        throw new Error('Razorpay payment gateway failed to load in browser.');
+      }
+    } catch (err: any) {
+      triggerToast('❌ Error: ' + err.message);
+      setCustomSubmitting(false);
+    }
   };
 
   // ── ORDER CREATION (MILESTONE 1: 50% UPFRONT) ────────────────
@@ -1514,7 +1659,18 @@ export default function ClientDashboard() {
                     <h1>Welcome back, {user?.name?.split(' ')[0] || 'Rohit'}! 👋</h1>
                     <p>Here's your full production command centre.</p>
                   </div>
-                  <button className="cd-new-btn" onClick={() => setNewProjectModalOpen(true)}>+ Start New Project</button>
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    <button
+                      className="cd-new-btn"
+                      style={{ background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', boxShadow: '0 4px 14px rgba(79, 70, 229, 0.3)' }}
+                      onClick={() => setCustomOrderModalOpen(true)}
+                    >
+                      ⚡ Custom / On-Demand (₹100 Adv)
+                    </button>
+                    <button className="cd-new-btn" onClick={() => setNewProjectModalOpen(true)}>
+                      + Fixed Packages
+                    </button>
+                  </div>
                 </div>
 
                 {/* 🛡️ 3-STAGE MILESTONE ESCROW EXPLAINER BANNER */}
@@ -2057,6 +2213,115 @@ export default function ClientDashboard() {
         </div>
       )}
 
+      {/* ═══════════ CUSTOM ON-DEMAND ORDER MODAL (₹100 ADVANCE) ═══════════ */}
+      {customOrderModalOpen && (
+        <div className="cd-modal-overlay" onClick={() => !customSubmitting && setCustomOrderModalOpen(false)}>
+          <div className="cd-modal" style={{ maxWidth: 620 }} onClick={e => e.stopPropagation()}>
+            <div className="cd-modal-header" style={{ borderBottom: '1px solid #e2e8f0' }}>
+              <div>
+                <h2 style={{ fontSize: 19, margin: 0 }}>⚡ Request Custom Project / On-Demand Scope</h2>
+                <small style={{ color: '#64748b' }}>₹100 Consultation &amp; Scoping Advance</small>
+              </div>
+              <button className="cd-modal-close" onClick={() => !customSubmitting && setCustomOrderModalOpen(false)}>×</button>
+            </div>
+            <div className="cd-modal-body">
+              {/* Advance Info Banner */}
+              <div style={{
+                background: 'linear-gradient(135deg, #1e1b4b 0%, #0f172a 100%)',
+                border: '1px solid #6366f1',
+                borderRadius: 10,
+                padding: '14px 16px',
+                color: '#ffffff',
+                marginBottom: 16
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: '#38bdf8' }}>
+                    🛡️ How Custom On-Demand Pricing Works:
+                  </span>
+                  <span style={{ background: 'rgba(56, 189, 248, 0.2)', border: '1px solid #38bdf8', color: '#38bdf8', padding: '2px 8px', borderRadius: 12, fontSize: 11, fontWeight: 700 }}>
+                    ₹100 Advance Token
+                  </span>
+                </div>
+                <p style={{ margin: 0, fontSize: 12, color: '#cbd5e1', lineHeight: 1.5 }}>
+                  1. Pay <b>₹100 advance deposit</b> to submit your bespoke requirements.<br />
+                  2. Workonova Leadership will review your brief and issue a customized price quote with standard 3-stage milestone escrow.<br />
+                  3. Approve the quote and pay the 50% Kickoff Milestone to start production!
+                </p>
+              </div>
+
+              <form id="customProjForm" onSubmit={handleCreateCustomOrder}>
+                <div className="cd-form-row">
+                  <label className="cd-form-label">Service Domain / Category *</label>
+                  <select
+                    className="cd-form-select"
+                    value={customCategory}
+                    onChange={e => setCustomCategory(e.target.value)}
+                  >
+                    {serviceCategories.map(c => <option key={c}>{c}</option>)}
+                    <option value="Custom Software / Full Stack">Custom Software / Full Stack</option>
+                    <option value="AI Agent / LLM Integration">AI Agent / LLM Integration</option>
+                    <option value="3D VFX / High-End Video Commercial">3D VFX / High-End Video Commercial</option>
+                    <option value="Enterprise Design System">Enterprise Design System</option>
+                    <option value="Other Custom Project">Other Custom Project</option>
+                  </select>
+                </div>
+
+                <div className="cd-form-row">
+                  <label className="cd-form-label">Detailed Project Requirements &amp; Scope Brief *</label>
+                  <textarea
+                    className="cd-form-textarea"
+                    required
+                    rows={4}
+                    placeholder="Describe everything you need built: target audience, key features, reference links, specific technologies, design style..."
+                    value={customBrief}
+                    onChange={e => setCustomBrief(e.target.value)}
+                  />
+                </div>
+
+                <div className="cd-form-row">
+                  <label className="cd-form-label">Google Drive, Dropbox or Figma Assets Link (Optional)</label>
+                  <input
+                    className="cd-form-input"
+                    type="url"
+                    placeholder="https://drive.google.com/drive/folders/... or https://dropbox.com/..."
+                    value={customLink}
+                    onChange={e => setCustomLink(e.target.value)}
+                  />
+                  <small style={{ fontSize: 11, color: '#64748b', marginTop: 4, display: 'block' }}>
+                    Share wireframes, PRD documents, or raw brand assets.
+                  </small>
+                </div>
+
+                <div className="cd-form-row">
+                  <label className="cd-form-label">Estimated Budget or Preferred Timeline (Optional)</label>
+                  <input
+                    className="cd-form-input"
+                    type="text"
+                    placeholder="e.g. Budget ~₹40,000 / Need delivery within 2 weeks"
+                    value={customBudget}
+                    onChange={e => setCustomBudget(e.target.value)}
+                  />
+                </div>
+              </form>
+            </div>
+            <div className="cd-modal-footer">
+              <button className="cd-btn-secondary" onClick={() => setCustomOrderModalOpen(false)} disabled={customSubmitting}>
+                Cancel
+              </button>
+              <button
+                className="cd-btn-primary"
+                form="customProjForm"
+                type="submit"
+                disabled={customSubmitting}
+                style={{ minWidth: 220, background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}
+              >
+                {customSubmitting ? 'Processing Payment... ⏳' : 'Pay ₹100 Advance via Razorpay 💳'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* REVISION MODAL */}
       {revisionModalOpen && activeProjectForModal && (
         <div className="cd-modal-overlay" onClick={() => setRevisionModalOpen(false)}>
@@ -2183,20 +2448,56 @@ export default function ClientDashboard() {
         </div>
       )}
 
-      {/* APPROVE MODAL (MIDPOINT & FINAL) */}
+      {/* APPROVE MODAL (MIDPOINT, FINAL & CUSTOM QUOTE) */}
       {approveModalOpen && activeProjectForModal && (
         <div className="cd-modal-overlay" onClick={() => setApproveModalOpen(false)}>
           <div className="cd-modal" onClick={e => e.stopPropagation()}>
             <div className="cd-modal-header">
               <h2>
-                {activeProjectForModal.rawStatus === 'midpoint_submitted'
+                {activeProjectForModal.rawStatus === 'quote_provided'
+                  ? '📋 Review Custom Quote & Pay Kickoff'
+                  : activeProjectForModal.rawStatus === 'midpoint_submitted'
                   ? '✅ Review & Approve 50% Midpoint Deliverable'
                   : '✅ Approve Final Deliverables & Settle Milestone'}
               </h2>
               <button className="cd-modal-close" onClick={() => setApproveModalOpen(false)}>×</button>
             </div>
             <div className="cd-modal-body">
-              {activeProjectForModal.rawStatus === 'midpoint_submitted' ? (
+              {activeProjectForModal.rawStatus === 'quote_provided' ? (
+                <div>
+                  <div style={{ background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: 14, marginBottom: 14 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#065f46', marginBottom: 4 }}>
+                      🎉 Custom Project Scope Quoted
+                    </div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#047857' }}>
+                      ₹{activeProjectForModal.amount.toLocaleString('en-IN')}
+                    </div>
+                    <p style={{ margin: '6px 0 0 0', fontSize: 12, color: '#065f46', lineHeight: 1.4 }}>
+                      Workonova Leadership has evaluated your custom project brief and established the milestone schedule.
+                    </p>
+                  </div>
+
+                  <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 14, fontSize: 12.5, color: '#334155' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>💰 Milestone 1 Kickoff (50%):</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
+                      ₹{Math.round(activeProjectForModal.amount * 0.5).toLocaleString('en-IN')}
+                    </div>
+                    <small style={{ color: '#64748b', display: 'block', marginTop: 4 }}>
+                      Paying 50% activates production and matches a verified lead specialist.
+                    </small>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="cd-btn-primary"
+                    style={{ width: '100%', padding: '12px', fontSize: 14, background: 'linear-gradient(135deg, #4f46e5, #7c3aed)' }}
+                    disabled={paymentProcessing}
+                    onClick={() => handlePayMilestone(activeProjectForModal, 1)}
+                  >
+                    {paymentProcessing ? 'Processing… ⏳' : `💳 Pay 50% Kickoff (₹${Math.round(activeProjectForModal.amount * 0.5).toLocaleString('en-IN')}) & Start Production →`}
+                  </button>
+                </div>
+              ) : activeProjectForModal.rawStatus === 'midpoint_submitted' ? (
                 <div>
                   <p style={{ fontSize: 13, color: '#475569', marginBottom: 12 }}>
                     Your specialist has submitted the 50% midpoint deliverables. Review the preview link below:

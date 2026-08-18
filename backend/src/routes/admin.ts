@@ -14,6 +14,17 @@ function sanitise(str: string): string {
   return str.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '').replace(/<[^>]*>/g, '').trim();
 }
 
+function safeJsonArray(val: any): string[] {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  try {
+    const parsed = JSON.parse(val);
+    return Array.isArray(parsed) ? parsed : [String(parsed)];
+  } catch {
+    return typeof val === 'string' ? [val] : [];
+  }
+}
+
 // ── GET All Orders (enriched with client + freelancer names) ──
 adminApp.get('/orders', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
@@ -47,7 +58,7 @@ adminApp.get('/freelancers', roleGuard(['admin', 'qa_admin']), async (c) => {
     }).from(freelancers);
 
     return c.json({
-      data: list.map(f => ({ ...f, role: 'freelancer', services: f.services ? JSON.parse(f.services) : [] }))
+      data: list.map(f => ({ ...f, role: 'freelancer', services: safeJsonArray(f.services) }))
     });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -62,8 +73,8 @@ adminApp.get('/users', roleGuard(['admin']), async (c) => {
     const adminList      = await db.select().from(admins);
 
     const allUsers = [
-      ...clientList.map(u     => ({ ...u, role: 'client',     services: u.services ? JSON.parse(u.services) : [] })),
-      ...freelancerList.map(u => ({ ...u, role: 'freelancer', services: u.services ? JSON.parse(u.services) : [] })),
+      ...clientList.map(u     => ({ ...u, role: 'client',     services: safeJsonArray(u.services) })),
+      ...freelancerList.map(u => ({ ...u, role: 'freelancer', services: safeJsonArray(u.services) })),
       ...adminList.map(u      => ({ ...u, services: [] })),
     ];
 
@@ -135,24 +146,58 @@ adminApp.patch('/users/:id/status', roleGuard(['admin']), async (c) => {
 });
 
 // ── POST Assign Order to Freelancer ──
-adminApp.post('/orders/:id/assign', roleGuard(['admin']), async (c) => {
+adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
-    const { freelancerId, payoutAmount } = await c.req.json();
+    const body = await c.req.json();
+    const freelancerId = Number(body.freelancerId);
+    const payoutAmount = body.payoutAmount !== undefined ? Number(body.payoutAmount) : 0;
 
-    if (!freelancerId || payoutAmount === undefined) return c.json({ error: 'freelancerId and payoutAmount are required.' }, 400);
+    if (!orderId || isNaN(orderId)) {
+      return c.json({ error: 'Valid order ID is required.' }, 400);
+    }
+    if (!freelancerId || isNaN(freelancerId)) {
+      return c.json({ error: 'Valid freelancer ID is required.' }, 400);
+    }
 
     const flRecord = await db.select().from(freelancers).where(eq(freelancers.id, freelancerId)).limit(1);
-    if (flRecord.length === 0) return c.json({ error: 'Freelancer not found.' }, 404);
+    if (flRecord.length === 0) return c.json({ error: 'Freelancer specialist not found.' }, 404);
 
     const updated = await db.update(orders).set({
-      freelancerId, freelancerPayoutAmount: payoutAmount, status: 'assigned', updatedAt: new Date().toISOString(),
+      freelancerId,
+      freelancerPayoutAmount: payoutAmount,
+      status: 'assigned',
+      updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
 
-    const sentAssign = await sendOrderUpdateEmail(flRecord[0].email, flRecord[0].name, orderId, 'New Task Assignment Available',
-      `You have been assigned to Task #${orderId} (${updated[0].serviceCategory}). Log in to your freelancer portal to view task briefs and submit deliverables.`
-    );
-    if (!sentAssign) console.error(`❌ Failed to send order assignment email to freelancer ${flRecord[0].email}`);
+    if (updated.length === 0) {
+      return c.json({ error: 'Order not found.' }, 404);
+    }
+
+    // System message audit log
+    try {
+      await db.insert(messages).values({
+        orderId,
+        senderId: 0,
+        senderRole: 'admin',
+        messageText: `[SYSTEM] Task assigned to specialist ${flRecord[0].name}. Production has officially started.`
+      });
+    } catch (msgErr) {
+      console.error('Failed to insert assignment audit message:', msgErr);
+    }
+
+    // Send task assignment email (safe async)
+    try {
+      await sendOrderUpdateEmail(
+        flRecord[0].email,
+        flRecord[0].name,
+        orderId,
+        'New Task Assignment Available',
+        `You have been assigned to Task #${orderId} (${updated[0].serviceCategory}). Log in to your freelancer portal to view task briefs and submit deliverables.`
+      );
+    } catch (emailErr: any) {
+      console.error(`❌ Failed to send order assignment email to freelancer ${flRecord[0].email}:`, emailErr?.message || emailErr);
+    }
 
     return c.json({ data: updated[0] });
   } catch (err: any) {
@@ -186,6 +231,64 @@ adminApp.patch('/orders/:id/price', roleGuard(['admin', 'qa_admin']), async (c) 
       senderRole: 'admin',
       messageText: `[SYSTEM] Admin customized order price to ₹${price.toLocaleString('en-IN')}${tier ? ` (${tier.toUpperCase()} tier)` : ''}.`
     });
+
+    return c.json({ data: updated[0] });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Quote Custom On-Demand Order & Demand Payment ──
+adminApp.post('/orders/:id/quote', roleGuard(['admin', 'qa_admin']), async (c) => {
+  try {
+    const orderId = Number(c.req.param('id'));
+    const body = await c.req.json();
+    const price = Number(body.price);
+    const quoteNotes = sanitise(body.quoteNotes || body.description || '');
+    const serviceCategory = body.serviceCategory ? sanitise(body.serviceCategory) : undefined;
+    const tier = body.tier ? sanitise(body.tier) : 'custom';
+
+    if (isNaN(price) || price <= 0) return c.json({ error: 'A valid project quote price greater than 0 is required.' }, 400);
+
+    const existingOrder = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+    if (existingOrder.length === 0) return c.json({ error: 'Order not found.' }, 404);
+
+    const updated = await db.update(orders).set({
+      price,
+      tier,
+      serviceCategory: serviceCategory || existingOrder[0].serviceCategory,
+      status: 'quote_provided',
+      adminRevisionComments: quoteNotes || existingOrder[0].adminRevisionComments,
+      updatedAt: new Date().toISOString(),
+    }).where(eq(orders.id, orderId)).returning();
+
+    // Insert system message into order chat
+    try {
+      await db.insert(messages).values({
+        orderId,
+        senderId: 0,
+        senderRole: 'admin',
+        messageText: `[SYSTEM] Workonova Leadership quoted project price: ₹${price.toLocaleString('en-IN')}${quoteNotes ? `\nScope details: ${quoteNotes}` : ''}. 50% Kickoff milestone payment (₹${Math.round(price * 0.5).toLocaleString('en-IN')}) is now ready for approval.`
+      });
+    } catch (msgErr) {
+      console.error('Failed to insert quote audit message:', msgErr);
+    }
+
+    // Get client details for email notification
+    try {
+      const clientRecord = await db.select().from(clients).where(eq(clients.id, existingOrder[0].clientId)).limit(1);
+      if (clientRecord.length > 0) {
+        await sendOrderUpdateEmail(
+          clientRecord[0].email,
+          clientRecord[0].name,
+          orderId,
+          `Custom Project Quote Ready: ₹${price.toLocaleString('en-IN')}`,
+          `Workonova Leadership has evaluated your custom project brief and generated a scope quote of ₹${price.toLocaleString('en-IN')}. Log in to your client portal to review deliverables and authorize the 50% Kickoff Milestone to start production.`
+        );
+      }
+    } catch (emailErr) {
+      console.error('Failed to send quote notification email:', emailErr);
+    }
 
     return c.json({ data: updated[0] });
   } catch (err: any) {
