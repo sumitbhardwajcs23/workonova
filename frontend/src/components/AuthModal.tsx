@@ -783,21 +783,6 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
                   <button className="am-submit" type="submit" disabled={loading} style={{ marginTop: '20px' }}>
                     {loading ? 'Logging in…' : 'Log in →'}
                   </button>
-                  <div style={{ marginTop: '16px', textAlign: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '12px' }}>
-                    <a
-                      href="/admin"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        onClose();
-                        navigate('/admin');
-                      }}
-                      style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none', transition: 'color 0.2s' }}
-                      onMouseEnter={(e) => (e.currentTarget.style.color = '#94a3b8')}
-                      onMouseLeave={(e) => (e.currentTarget.style.color = '#64748b')}
-                    >
-                      Staff or Executive? Access Admin Portal →
-                    </a>
-                  </div>
                 </form>
               </>
             )}

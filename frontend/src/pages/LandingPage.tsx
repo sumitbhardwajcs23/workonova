@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import AuthModal from '../components/AuthModal';
 import { API_BASE } from '../config.js';
 import { formatImageUrl, DEFAULT_AVATAR } from '../utils/imageResolver.js';
@@ -296,9 +296,6 @@ export default function LandingPage() {
           <a href="#why">Why Workonova</a>
           <button onClick={() => setSelectedAboutModal(true)}>About Us</button>
           <button onClick={() => setSelectedBlogModal(true)}>Blog</button>
-          <Link to="/admin" style={{ color: '#818cf8', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-            Admin Portal 🛡️
-          </Link>
         </nav>
         <div className="head-actions">
           <button className="btn-ghost" onClick={() => openModal('login')}>Log in</button>
@@ -320,9 +317,6 @@ export default function LandingPage() {
           ))}
           <button onClick={() => { setSelectedAboutModal(true); setMobileOpen(false); }}>About Us</button>
           <button onClick={() => { setSelectedBlogModal(true); setMobileOpen(false); }}>Blog</button>
-          <Link to="/admin" onClick={() => setMobileOpen(false)} style={{ color: '#818cf8', fontWeight: 600, textDecoration: 'none' }}>
-            Admin Portal 🛡️
-          </Link>
         </nav>
         <div className="mobile-account">
           <button className="btn-ghost" onClick={() => { openModal('login'); setMobileOpen(false); }}>Log in</button>
@@ -710,9 +704,6 @@ export default function LandingPage() {
           <button className="lp-footer-link" onClick={() => setSelectedPolicy(POLICIES.terms)}>Terms & Conditions</button>
           <button className="lp-footer-link" onClick={() => setSelectedPolicy(POLICIES.disclaimer)}>Disclaimer</button>
           <button className="lp-footer-link" onClick={() => setSelectedPolicy(POLICIES.refund)}>Refund & Cancellation Policy</button>
-          <a href="/admin" className="lp-footer-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '10px', color: '#a5b4fc', textDecoration: 'none', fontWeight: 600 }}>
-            🔒 Admin Portal Panel ↗
-          </a>
         </div>
         <div>
           <h4>Our Services</h4>
@@ -723,12 +714,7 @@ export default function LandingPage() {
           <a href="#services">Digital Marketing</a>
           <a href="#services">Website, Software, Mobile & AI</a>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gridColumn: '1 / -1', marginTop: '12px', flexWrap: 'wrap', gap: '8px' }}>
-          <small>Copyright 2026 Workonova. All rights reserved.</small>
-          <a href="/admin" style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none', transition: 'color 0.2s' }}>
-            Authorized Personnel: Admin OS Portal Panel
-          </a>
-        </div>
+        <small>Copyright 2026 Workonova. All rights reserved.</small>
       </footer>
 
       <AuthModal isOpen={modal.open} onClose={closeModal} initialMode={modal.mode} initialRole={initialRole} />
