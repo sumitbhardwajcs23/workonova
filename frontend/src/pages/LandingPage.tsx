@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
 import AuthModal from '../components/AuthModal';
 import { API_BASE } from '../config.js';
 import { formatImageUrl, DEFAULT_AVATAR } from '../utils/imageResolver.js';
@@ -106,9 +107,9 @@ const defaultTeam = [
   {
     name: 'Dharmendra Sharma',
     role: 'Founder / CEO / MD',
-    subtitle: 'Strategic Leadership & Agency Vision',
-    description: 'Founder, CEO, and Managing Director driving WORKONOVA with a vision to build high-impact creative technology and performance marketing solutions.',
-    bio: 'Dharmendra Sharma is the visionary Founder and CEO of WORKONOVA. With over a decade of leadership in software design and digital agency consulting, Dharmendra has pioneered the anonymized workspace concept to eliminate cognitive bias and bring pure project delivery quality to the forefront of creative operations. Under his leadership, WORKONOVA has scaled from a boutique design lab into a high-performance ecosystem serving startups and enterprises globally.',
+    subtitle: 'Strategic Leadership & Tech Ecosystem Vision',
+    description: 'Founder, CEO, and Managing Director driving WORKONOVA with a vision to build high-impact creative technology, AI systems, and scalable product solutions.',
+    bio: 'Dharmendra Sharma is the visionary Founder and CEO of WORKONOVA. With over a decade of leadership in software design, deep-tech systems, and product engineering, Dharmendra has pioneered the anonymized workspace concept to eliminate cognitive bias and bring pure project delivery quality to the forefront of technology operations. Under his leadership, WORKONOVA has scaled from a boutique engineering lab into a high-performance tech ecosystem serving startups and enterprises globally.',
     uniqueFact: 'Maintains a personal daily focus of reviewing the active QC queue to guarantee every custom client deliverable meets aesthetic thresholds.',
     image: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=600&q=80'
   },
@@ -164,9 +165,10 @@ function ServiceCard({ svc, onClick }: { svc: typeof services[0]; onClick: () =>
 
 /* ─── Main Page ─── */
 export default function LandingPage() {
+  const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [modal, setModal] = useState<{ open: boolean; mode: 'login' | 'signup' }>({ open: false, mode: 'login' });
-  const [initialRole, setInitialRole] = useState<'client' | 'freelancer' | 'admin'>('client');
+  const [initialRole, setInitialRole] = useState<'client' | 'freelancer'>('client');
   const [openFaq, setOpenFaq] = useState<number | null>(null);
   const [liveReviews, setLiveReviews] = useState<any[]>([]);
   const [liveBlogs, setLiveBlogs] = useState<any[]>([]);
@@ -186,15 +188,24 @@ export default function LandingPage() {
     const params = new URLSearchParams(window.location.search);
     const modalParam = params.get('modal');
     const roleParam = params.get('role');
+
+    if (roleParam === 'admin') {
+      navigate('/admin', { replace: true });
+      return;
+    }
+
     if (modalParam === 'login') {
-      const selectedRole = (roleParam === 'admin' || roleParam === 'client' || roleParam === 'freelancer')
-        ? roleParam
-        : 'client';
-      setInitialRole(selectedRole as any);
-      openModal('login', selectedRole as any);
+      const selectedRole = roleParam === 'freelancer' ? 'freelancer' : 'client';
+      setInitialRole(selectedRole);
+      openModal('login', selectedRole);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (modalParam === 'signup') {
+      const selectedRole = roleParam === 'freelancer' ? 'freelancer' : 'client';
+      setInitialRole(selectedRole);
+      openModal('signup', selectedRole);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     // 1. Fetch Testimonials
@@ -258,7 +269,7 @@ export default function LandingPage() {
   const [selectedAboutModal, setSelectedAboutModal] = useState(false);
   const [selectedBlogModal, setSelectedBlogModal] = useState(false);
 
-  const openModal = (mode: 'login' | 'signup', role: 'client' | 'freelancer' | 'admin' = 'client') => {
+  const openModal = (mode: 'login' | 'signup', role: 'client' | 'freelancer' = 'client') => {
     setInitialRole(role);
     setModal({ open: true, mode });
   };
@@ -285,7 +296,9 @@ export default function LandingPage() {
           <a href="#why">Why Workonova</a>
           <button onClick={() => setSelectedAboutModal(true)}>About Us</button>
           <button onClick={() => setSelectedBlogModal(true)}>Blog</button>
-          <button onClick={() => openModal('login', 'admin')} style={{ color: '#818cf8', fontWeight: 600 }}>Admin Portal 🛡️</button>
+          <Link to="/admin" style={{ color: '#818cf8', fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            Admin Portal 🛡️
+          </Link>
         </nav>
         <div className="head-actions">
           <button className="btn-ghost" onClick={() => openModal('login')}>Log in</button>
@@ -307,7 +320,9 @@ export default function LandingPage() {
           ))}
           <button onClick={() => { setSelectedAboutModal(true); setMobileOpen(false); }}>About Us</button>
           <button onClick={() => { setSelectedBlogModal(true); setMobileOpen(false); }}>Blog</button>
-          <button onClick={() => { openModal('login', 'admin'); setMobileOpen(false); }} style={{ color: '#818cf8', fontWeight: 600 }}>Admin Portal 🛡️</button>
+          <Link to="/admin" onClick={() => setMobileOpen(false)} style={{ color: '#818cf8', fontWeight: 600, textDecoration: 'none' }}>
+            Admin Portal 🛡️
+          </Link>
         </nav>
         <div className="mobile-account">
           <button className="btn-ghost" onClick={() => { openModal('login'); setMobileOpen(false); }}>Log in</button>
@@ -320,6 +335,8 @@ export default function LandingPage() {
         <section className="lp-hero">
           <video className="lp-hero-video" autoPlay muted loop playsInline disablePictureInPicture aria-hidden="true">
             <source src="/assets/hero.mp4" type="video/mp4" />
+            <source src="/assets/workonova-hero.mp4" type="video/mp4" />
+            <source src="/hero.mp4" type="video/mp4" />
           </video>
           <div className="lp-hero-shade" />
           <div className="lp-hero-content">
@@ -575,7 +592,7 @@ export default function LandingPage() {
         <section className="lp-section lp-reasons" id="why">
           <div className="lp-intro">
             <p className="lp-eyebrow">WHY WORKONOVA</p>
-            <h2>The quality of an agency. The ease of a product.</h2>
+            <h2>The precision of deep tech. The speed of an intelligent platform.</h2>
           </div>
           <div className="lp-reason-grid">
             {reasons.map(r => (
@@ -693,6 +710,9 @@ export default function LandingPage() {
           <button className="lp-footer-link" onClick={() => setSelectedPolicy(POLICIES.terms)}>Terms & Conditions</button>
           <button className="lp-footer-link" onClick={() => setSelectedPolicy(POLICIES.disclaimer)}>Disclaimer</button>
           <button className="lp-footer-link" onClick={() => setSelectedPolicy(POLICIES.refund)}>Refund & Cancellation Policy</button>
+          <a href="/admin" className="lp-footer-link" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', marginTop: '10px', color: '#a5b4fc', textDecoration: 'none', fontWeight: 600 }}>
+            🔒 Admin Portal Panel ↗
+          </a>
         </div>
         <div>
           <h4>Our Services</h4>
@@ -703,7 +723,12 @@ export default function LandingPage() {
           <a href="#services">Digital Marketing</a>
           <a href="#services">Website, Software, Mobile & AI</a>
         </div>
-        <small>Copyright 2026 Workonova. All rights reserved.</small>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gridColumn: '1 / -1', marginTop: '12px', flexWrap: 'wrap', gap: '8px' }}>
+          <small>Copyright 2026 Workonova. All rights reserved.</small>
+          <a href="/admin" style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none', transition: 'color 0.2s' }}>
+            Authorized Personnel: Admin OS Portal Panel
+          </a>
+        </div>
       </footer>
 
       <AuthModal isOpen={modal.open} onClose={closeModal} initialMode={modal.mode} initialRole={initialRole} />
@@ -719,7 +744,7 @@ export default function LandingPage() {
             <div className="lp-modal-body" style={{ maxHeight: '65vh', overflowY: 'auto' }}>
               <div className="lp-policy-content">
                 <h2>Who We Are</h2>
-                <p><strong>Workonova</strong> is a premium, next-generation digital agency and talent workspace matching top-tier design, software, and marketing experts with fast-growing brands. We solve the administrative overhead, delays, and poor communication issues of typical freelance marketplaces by introducing AI-orchestrated task pipelines and structured QA guardrails.</p>
+                <p><strong>Workonova</strong> is a next-generation AI-powered technology platform and on-demand execution ecosystem matching top-tier design, software, and marketing experts with fast-growing brands. We solve the administrative overhead, delays, and poor communication issues of typical freelance marketplaces by introducing AI-orchestrated task pipelines and structured QA guardrails.</p>
                 
                 <h3>Our Vision & Philosophy</h3>
                 <p>We believe that <i>good work feels easy</i>. By keeping client-freelancer coordination strictly secure and objective through an anonymized portal, we ensure that project decisions are driven by work quality rather than cognitive bias. Our managers oversee assignments, coordinate feedback rounds, and enforce quality checks before delivering files.</p>
@@ -738,7 +763,7 @@ export default function LandingPage() {
                 <p><b>3. Predictable Timelines:</b> No ghosting, no excuses. If a designer is stuck, our backup pool is automatically assigned to keep your project on track.</p>
                 
                 <h3>Get in Touch</h3>
-                <p>Have questions or ready to launch? Speak directly with our core agency team:</p>
+                <p>Have questions or ready to launch? Speak directly with our core technology & solutions team:</p>
                 <p><b>WhatsApp:</b> +91 7983264117 <br /><b>Phone:</b> +91 8077 717 422<br /><b>Email:</b> contact@workonova.com</p>
               </div>
             </div>

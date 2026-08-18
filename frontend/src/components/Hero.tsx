@@ -31,6 +31,8 @@ export default function Hero({ onOpenSignup }: HeroProps) {
         disablePictureInPicture
       >
         <source src="/assets/hero.mp4" type="video/mp4" />
+        <source src="/assets/workonova-hero.mp4" type="video/mp4" />
+        <source src="/hero.mp4" type="video/mp4" />
       </video>
       
       {/* Decorative orbs */}

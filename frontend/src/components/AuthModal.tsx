@@ -10,7 +10,7 @@ interface AuthModalProps {
   initialRole?: Role;
 }
 
-type Role = 'client' | 'freelancer' | 'admin';
+type Role = 'client' | 'freelancer';
 type Mode = 'login' | 'signup' | 'forgot';
 type ModalView = 'form' | 'otp' | 'success';
 
@@ -715,19 +715,17 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
             {/* Login View */}
             {mode === 'login' && (
               <>
-                {role !== 'admin' && (
-                  <div className={`am-role-switch${role === 'freelancer' ? ' is-freelancer' : ''}`}
-                    style={{ marginBottom: '20px' }}>
-                    <div className="am-role-pill" />
-                    <button type="button" className={role === 'client' ? 'active' : ''}
-                      onClick={() => switchRole('client')}>Client</button>
-                    <button type="button" className={role === 'freelancer' ? 'active' : ''}
-                      onClick={() => switchRole('freelancer')}>Freelancer</button>
-                  </div>
-                )}
+                <div className={`am-role-switch${role === 'freelancer' ? ' is-freelancer' : ''}`}
+                  style={{ marginBottom: '20px' }}>
+                  <div className="am-role-pill" />
+                  <button type="button" className={role === 'client' ? 'active' : ''}
+                    onClick={() => switchRole('client')}>Client</button>
+                  <button type="button" className={role === 'freelancer' ? 'active' : ''}
+                    onClick={() => switchRole('freelancer')}>Freelancer</button>
+                </div>
 
                 <p className="am-eyebrow">WELCOME BACK</p>
-                <h2 className="am-title">Log in as {role === 'admin' ? 'an Admin' : `a ${role}`}</h2>
+                <h2 className="am-title">Log in as a {role}</h2>
                 <p className="am-sub">Access your projects, briefs, and deliveries in one place.</p>
 
                 {successMsg && <p style={{ color: '#10b981', fontSize: '14px', marginBottom: '14px' }}>{successMsg}</p>}
@@ -785,6 +783,21 @@ export default function AuthModal({ isOpen, onClose, initialMode = 'login', init
                   <button className="am-submit" type="submit" disabled={loading} style={{ marginTop: '20px' }}>
                     {loading ? 'Logging in…' : 'Log in →'}
                   </button>
+                  <div style={{ marginTop: '16px', textAlign: 'center', borderTop: '1px solid rgba(255, 255, 255, 0.08)', paddingTop: '12px' }}>
+                    <a
+                      href="/admin"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        onClose();
+                        navigate('/admin');
+                      }}
+                      style={{ fontSize: '12px', color: '#64748b', textDecoration: 'none', transition: 'color 0.2s' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = '#94a3b8')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = '#64748b')}
+                    >
+                      Staff or Executive? Access Admin Portal →
+                    </a>
+                  </div>
                 </form>
               </>
             )}

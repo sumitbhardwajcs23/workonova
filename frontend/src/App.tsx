@@ -3,6 +3,7 @@ import LandingPage from './pages/LandingPage.js';
 import ClientDashboard from './pages/ClientDashboard.js';
 import FreelancerDashboard from './pages/FreelancerDashboard.js';
 import AdminDashboard from './pages/AdminDashboard.js';
+import AdminLogin from './pages/AdminLogin.js';
 import ProtectedRoute from './components/ProtectedRoute.js';
 import './index.css';
 
@@ -11,6 +12,8 @@ function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        <Route path="/admin" element={<AdminLogin />} />
+        <Route path="/admin-login" element={<AdminLogin />} />
         <Route path="/client-dashboard" element={
           <ProtectedRoute allowedRoles={['client']}>
             <ClientDashboard />

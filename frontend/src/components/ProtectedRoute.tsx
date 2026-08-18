@@ -11,12 +11,11 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
   const user = getUser();
 
   if (!user || ('emailVerified' in user && user.emailVerified === 0)) {
-    // Not logged in or not email verified
-    const defaultRole = allowedRoles && (allowedRoles.includes('admin') || allowedRoles.includes('qa_admin'))
-      ? 'admin'
-      : allowedRoles && allowedRoles.includes('freelancer')
-        ? 'freelancer'
-        : 'client';
+    // If attempting to access admin route, redirect to dedicated admin login page
+    if (allowedRoles && (allowedRoles.includes('admin') || allowedRoles.includes('qa_admin'))) {
+      return <Navigate to="/admin" replace />;
+    }
+    const defaultRole = allowedRoles && allowedRoles.includes('freelancer') ? 'freelancer' : 'client';
     return <Navigate to={`/?modal=login&role=${defaultRole}`} replace />;
   }
 

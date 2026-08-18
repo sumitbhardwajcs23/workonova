@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import bcrypt from 'bcryptjs';
 import { db } from '../db/index.js';
 import { orders, clients, freelancers, admins, messages, testimonials, blogs, bundles, teamMembers, gallery } from '../db/schema.js';
-import { eq, and } from 'drizzle-orm';
+import { eq, and, desc } from 'drizzle-orm';
 import { authGuard, roleGuard } from '../middleware/auth.js';
 import { sendWelcomeEmail, sendOrderUpdateEmail, sendPayoutReleasedEmail } from '../utils/mailer.js';
 import { resolveDirectImageUrl } from '../utils/imageResolver.js';
@@ -29,9 +29,9 @@ function safeJsonArray(val: any): string[] {
 adminApp.get('/orders', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
     const [allOrders, allClients, allFreelancers] = await Promise.all([
-      db.select().from(orders),
-      db.select({ id: clients.id, name: clients.name, email: clients.email }).from(clients),
-      db.select({ id: freelancers.id, name: freelancers.name, email: freelancers.email }).from(freelancers),
+      db.select().from(orders).orderBy(desc(orders.createdAt), desc(orders.id)),
+      db.select({ id: clients.id, name: clients.name, email: clients.email, phone: clients.phone, createdAt: clients.createdAt, status: clients.status }).from(clients),
+      db.select({ id: freelancers.id, name: freelancers.name, email: freelancers.email, phone: freelancers.phone, services: freelancers.services, portfolioLink: freelancers.portfolioLink, status: freelancers.status, createdAt: freelancers.createdAt, bankDetails: freelancers.bankDetails }).from(freelancers),
     ]);
 
     const clientMap = new Map(allClients.map(c => [c.id, c]));
@@ -53,8 +53,9 @@ adminApp.get('/orders', roleGuard(['admin', 'qa_admin']), async (c) => {
 adminApp.get('/freelancers', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
     const list = await db.select({
-      id: freelancers.id, name: freelancers.name, email: freelancers.email,
+      id: freelancers.id, name: freelancers.name, email: freelancers.email, phone: freelancers.phone,
       services: freelancers.services, portfolioLink: freelancers.portfolioLink, status: freelancers.status,
+      bankDetails: freelancers.bankDetails, createdAt: freelancers.createdAt,
     }).from(freelancers);
 
     return c.json({
@@ -420,8 +421,9 @@ adminApp.get('/financials', roleGuard(['admin']), async (c) => {
 adminApp.put('/orders/:id/payout-amount', roleGuard(['admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
-    const { amount } = await c.req.json();
-    const payoutAmount = Number(amount);
+    const body = await c.req.json();
+    const rawAmount = body.payoutAmount !== undefined ? body.payoutAmount : body.amount;
+    const payoutAmount = Number(rawAmount);
     if (isNaN(payoutAmount) || payoutAmount < 0) {
       return c.json({ error: 'Valid payout amount is required.' }, 400);
     }
@@ -455,11 +457,19 @@ adminApp.put('/orders/:id/payout-amount', roleGuard(['admin']), async (c) => {
 adminApp.post('/orders/:id/approve-payout', roleGuard(['admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
+    let body: any = {};
+    try { body = await c.req.json(); } catch { body = {}; }
+
     const existing = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
     if (existing.length === 0) return c.json({ error: 'Order not found.' }, 404);
 
+    const rawAmount = body?.payoutAmount !== undefined ? body.payoutAmount : body?.amount;
+    const hasNewAmount = rawAmount !== undefined && !isNaN(Number(rawAmount)) && Number(rawAmount) >= 0;
+    const finalPayoutAmount = hasNewAmount ? Number(rawAmount) : existing[0].freelancerPayoutAmount;
+
     const updated = await db.update(orders).set({
       payoutStatus: 'payout_approved',
+      freelancerPayoutAmount: finalPayoutAmount,
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
 
@@ -472,7 +482,7 @@ adminApp.post('/orders/:id/approve-payout', roleGuard(['admin']), async (c) => {
 
     return c.json({
       success: true,
-      message: 'Payout approved by Admin.',
+      message: `Payout of ₹${(updated[0].freelancerPayoutAmount || 0).toLocaleString('en-IN')} approved by Admin.`,
       data: updated[0],
     });
   } catch (err: any) {
@@ -484,6 +494,8 @@ adminApp.post('/orders/:id/approve-payout', roleGuard(['admin']), async (c) => {
 adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
+    let body: any = {};
+    try { body = await c.req.json(); } catch { body = {}; }
 
     const existing = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
     if (existing.length === 0) return c.json({ error: 'Order not found.' }, 404);
@@ -493,9 +505,14 @@ adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
       return c.json({ error: 'No freelancer assigned to this order.' }, 400);
     }
 
+    const rawAmount = body?.payoutAmount !== undefined ? body.payoutAmount : body?.amount;
+    const hasNewAmount = rawAmount !== undefined && !isNaN(Number(rawAmount)) && Number(rawAmount) >= 0;
+    const finalPayoutAmount = hasNewAmount ? Number(rawAmount) : (orderRecord.freelancerPayoutAmount || 0);
+
     const updated = await db.update(orders).set({
       status: 'completed',
       payoutStatus: 'payout_released',
+      freelancerPayoutAmount: finalPayoutAmount,
       payoutReleasedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
@@ -505,7 +522,7 @@ adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
       orderId,
       senderId: 0,
       senderRole: 'admin',
-      messageText: `[SYSTEM] 💰 Admin approved and disbursed ₹${(orderRecord.freelancerPayoutAmount || 0).toLocaleString('en-IN')} milestone payout to specialist. Project complete!`,
+      messageText: `[SYSTEM] 💰 Admin approved and disbursed ₹${finalPayoutAmount.toLocaleString('en-IN')} milestone payout to specialist. Project complete!`,
     });
 
     // Notify Freelancer via Email
@@ -515,7 +532,7 @@ adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
         flRecord[0].email,
         flRecord[0].name,
         orderId,
-        orderRecord.freelancerPayoutAmount || 0,
+        finalPayoutAmount,
         orderRecord.serviceCategory
       );
       if (!sent) console.error(`❌ Failed to send payout released email to ${flRecord[0].email}`);
@@ -523,7 +540,7 @@ adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
 
     return c.json({
       success: true,
-      message: `Payout of ₹${(orderRecord.freelancerPayoutAmount || 0).toLocaleString('en-IN')} released to specialist successfully.`,
+      message: `Payout of ₹${finalPayoutAmount.toLocaleString('en-IN')} released to specialist successfully.`,
       data: updated[0],
     });
   } catch (err: any) {

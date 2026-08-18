@@ -4,6 +4,9 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "deploy": "tsc && serverless deploy",
+    "deploy:amplify": "node deploy_amplify.js",
     "start": "npx pm2 start ecosystem.config.js",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
@@ -29,12 +32,15 @@
     "redis": "^6.2.1"
   },
   "devDependencies": {
+    "@aws-sdk/client-amplify": "^3.1112.0",
     "@aws-sdk/client-s3": "^3.1111.0",
     "@types/bcryptjs": "^2.4.6",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.2.0",
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.21.0",
+    "adm-zip": "^0.6.0",
+    "archiver": "^8.0.0",
     "drizzle-kit": "^0.31.10",
     "mime-types": "^3.0.2",
     "pm2": "^7.0.3",

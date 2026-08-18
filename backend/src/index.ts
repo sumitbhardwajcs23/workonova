@@ -40,14 +40,17 @@ app.use('*', cors({
     if (process.env.NODE_ENV !== 'production') {
       return origin; // Development allows all
     }
-    // Production: Allow defined origins or S3 static hosting buckets
+    // Production: Allow defined origins, Amplify apps, or S3 static hosting buckets
     if (
+      !origin ||
       allowedOrigins.includes(origin) ||
-      (origin.startsWith('http://workonova-frontend-') && origin.includes('.s3-website-'))
+      origin.includes('.amplifyapp.com') ||
+      (origin.startsWith('http://workonova-frontend-') && origin.includes('.s3-website-')) ||
+      process.env.CORS_ORIGIN === '*'
     ) {
       return origin;
     }
-    return allowedOrigins[0];
+    return origin;
   },
   allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],

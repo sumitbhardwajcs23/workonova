@@ -27,8 +27,8 @@ interface Order {
   adminRevisionComments?: string;
   createdAt: string;
   updatedAt?: string;
-  client?: { name: string; email: string; phone?: string; };
-  freelancer?: { name: string; email: string; };
+  client?: { name: string; email: string; phone?: string; status?: string; createdAt?: string; };
+  freelancer?: { name: string; email: string; phone?: string; services?: string[]; portfolioLink?: string; bankDetails?: any; status?: string; createdAt?: string; };
 }
 
 interface Freelancer {
@@ -40,6 +40,37 @@ interface Freelancer {
   portfolioLink?: string;
   bankDetails?: any;
   status?: string;
+  createdAt?: string;
+}
+
+export interface ClientRow {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  totalOrders: number;
+  activeTasks: number;
+  completedTasks: number;
+  ltv: number;
+  status: 'Active' | 'Dormant' | 'Suspended';
+  createdAt?: string;
+}
+
+export interface FreelancerRow {
+  id: number;
+  name: string;
+  email: string;
+  phone: string;
+  services: string[];
+  portfolioLink?: string;
+  bankDetails?: any;
+  status: string;
+  totalTasks: number;
+  activeTasks: number;
+  completedTasks: number;
+  totalEarnings: number;
+  pendingPayout: number;
+  createdAt?: string;
 }
 
 interface Testimonial {
@@ -85,9 +116,11 @@ export default function AdminDashboard() {
   const [clientSearch, setClientSearch] = useState('');
   const [clientSort, setClientSort] = useState('ltv-high');
 
-  // Freelancer Roster Grid Filters
+  // Freelancer Roster Grid Filters & Modal
   const [flSearch, setFlSearch] = useState('');
   const [flFilterSkill, setFlFilterSkill] = useState('all');
+  const [flSort, setFlSort] = useState('earnings-high');
+  const [selectedFreelancerModal, setSelectedFreelancerModal] = useState<FreelancerRow | null>(null);
 
   // ── MODALS & SUBMIT CONTROLS ──────────────────────────────────
   const [assignDeskTab, setAssignDeskTab] = useState<'pending' | 'assigned'>('pending');
@@ -200,7 +233,12 @@ export default function AdminDashboard() {
         }
       }
 
-      setOrders(dataOrders.data || []);
+      const sortedOrders = (dataOrders.data || []).sort((a: Order, b: Order) => {
+        const timeA = new Date(a.createdAt || 0).getTime();
+        const timeB = new Date(b.createdAt || 0).getTime();
+        return timeB - timeA || b.id - a.id;
+      });
+      setOrders(sortedOrders);
       if (resFl.ok) setFreelancers(dataFl.data || []);
       if (resT.ok) setTestimonials(dataT.data || []);
       if (resB.ok) setBlogsList(dataB.data || []);
@@ -403,49 +441,106 @@ export default function AdminDashboard() {
     } catch (err: any) { setError(err.message); }
   };
 
+  const handleToggleFreelancerStatus = async (freelancerId: number, currentStatus: string) => {
+    const nextStatus = currentStatus === 'active' || currentStatus === 'Active' ? 'suspended' : 'active';
+    setError(''); setSuccess('');
+    try {
+      const res = await fetch(`${API_BASE}/api/admin/users/${freelancerId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ role: 'freelancer', status: nextStatus })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to update specialist status');
+      setSuccess(`Specialist status successfully updated to ${nextStatus.toUpperCase()}!`);
+      if (selectedFreelancerModal) {
+        setSelectedFreelancerModal({
+          ...selectedFreelancerModal,
+          status: nextStatus === 'active' ? 'Active' : 'Suspended'
+        });
+      }
+      await fetchDashboardData(true);
+    } catch (err: any) {
+      setError(err.message || 'Failed to change specialist status.');
+    }
+  };
+
   const handleUpdatePayoutAmount = async (orderId: number, newAmount: number) => {
     if (!isMaster) return;
+    if (isNaN(newAmount) || newAmount < 0) {
+      setError('Please enter a valid non-negative payout amount.');
+      return;
+    }
     setError(''); setSuccess('');
     try {
       const res = await fetch(`${API_BASE}/api/admin/orders/${orderId}/payout-amount`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ payoutAmount: newAmount })
+        body: JSON.stringify({ payoutAmount: newAmount, amount: newAmount })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update payout amount');
-      setSuccess(`✅ Payout amount for Order #WN-${orderId} updated to ₹${newAmount.toLocaleString('en-IN')}`);
-      fetchDashboardData();
+      
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, freelancerPayoutAmount: newAmount } : o));
+      setSuccess(`✅ Regulated payout amount for Order #WN-${orderId} updated to ₹${newAmount.toLocaleString('en-IN')}`);
+      fetchDashboardData(true);
     } catch (err: any) { setError(err.message); }
   };
 
   const handleApprovePayout = async (orderId: number) => {
     if (!isMaster) return;
     setError(''); setSuccess('');
+    const inputEl = document.getElementById(`payout-input-${orderId}`) as HTMLInputElement | null;
+    const currentInputAmount = inputEl ? Number(inputEl.value) : undefined;
+    const validAmount = currentInputAmount !== undefined && !isNaN(currentInputAmount) && currentInputAmount >= 0 ? currentInputAmount : undefined;
+
     try {
       const res = await fetch(`${API_BASE}/api/admin/orders/${orderId}/approve-payout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ payoutAmount: validAmount, amount: validAmount })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to approve payout');
-      setSuccess(`🛡️ Payout for Order #WN-${orderId} approved by Admin! Ready for final disbursement.`);
-      fetchDashboardData();
+
+      const approvedAmount = data.data?.freelancerPayoutAmount ?? validAmount;
+      setOrders(prev => prev.map(o => o.id === orderId ? {
+        ...o,
+        payoutStatus: 'payout_approved',
+        ...(approvedAmount !== undefined ? { freelancerPayoutAmount: approvedAmount } : {})
+      } : o));
+
+      setSuccess(`🛡️ Payout for Order #WN-${orderId} (₹${(approvedAmount || 0).toLocaleString('en-IN')}) approved by Admin! Ready for final disbursement.`);
+      fetchDashboardData(true);
     } catch (err: any) { setError(err.message); }
   };
 
   const handlePayoutRelease = async (orderId: number) => {
     if (!isMaster) return;
     setError(''); setSuccess('');
+    const inputEl = document.getElementById(`payout-input-${orderId}`) as HTMLInputElement | null;
+    const currentInputAmount = inputEl ? Number(inputEl.value) : undefined;
+    const validAmount = currentInputAmount !== undefined && !isNaN(currentInputAmount) && currentInputAmount >= 0 ? currentInputAmount : undefined;
+
     try {
       const res = await fetch(`${API_BASE}/api/admin/orders/${orderId}/release-payout`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ payoutAmount: validAmount, amount: validAmount })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Payout release failed');
-      setSuccess(data.message || '🎉 Payout released and notified specialist. Order delivered!');
-      fetchDashboardData();
+
+      const releasedAmount = data.data?.freelancerPayoutAmount ?? validAmount;
+      setOrders(prev => prev.map(o => o.id === orderId ? {
+        ...o,
+        status: 'completed',
+        payoutStatus: 'payout_released',
+        ...(releasedAmount !== undefined ? { freelancerPayoutAmount: releasedAmount } : {})
+      } : o));
+
+      setSuccess(data.message || `🎉 Payout of ₹${(releasedAmount || 0).toLocaleString('en-IN')} released to specialist. Order delivered!`);
+      fetchDashboardData(true);
     } catch (err: any) { setError(err.message); }
   };
 
@@ -706,6 +801,53 @@ export default function AdminDashboard() {
     } catch (err: any) { setError(err.message); }
   };
 
+  // ── EXPORT FREELANCERS ROSTER TO EXCEL (.CSV) ─────────────────
+  const exportFreelancersToExcel = () => {
+    if (freelancerRows.length === 0) {
+      setError('No freelancers available to export.');
+      return;
+    }
+    const headers = [
+      'Specialist Name',
+      'Email Address',
+      'Phone Number',
+      'Vetted Services',
+      'Account Status',
+      'Total Tasks Assigned',
+      'Active Tasks',
+      'Completed Tasks',
+      'Lifetime Settled Earnings (INR)',
+      'Pending Payout (INR)',
+      'Portfolio Link',
+      'Export Date'
+    ];
+    const rows = freelancerRows.map(f => [
+      `"${(f.name || '').replace(/"/g, '""')}"`,
+      `"${(f.email || '').replace(/"/g, '""')}"`,
+      `"${(f.phone || '').replace(/"/g, '""')}"`,
+      `"${(f.services || []).join('; ').replace(/"/g, '""')}"`,
+      `"${f.status}"`,
+      f.totalTasks,
+      f.activeTasks,
+      f.completedTasks,
+      `"${f.totalEarnings}"`,
+      `"${f.pendingPayout}"`,
+      `"${(f.portfolioLink || '').replace(/"/g, '""')}"`,
+      `"${new Date().toLocaleDateString('en-IN')}"`
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `Workonova_Freelancer_Roster_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setSuccess('📥 Downloaded full specialist roster spreadsheet (Excel compatible .CSV)!');
+  };
+
   // ── EXPORT CLIENTS DATABASE TO EXCEL (.CSV) ───────────────────
   const exportClientsToExcel = () => {
     if (clientRows.length === 0) {
@@ -836,12 +978,12 @@ export default function AdminDashboard() {
         id: o.clientId,
         name: o.client.name,
         email: o.client.email,
-        phone: o.client.phone || '+91 98765 43210',
+        phone: o.client.phone || '—',
         totalOrders: 0,
         activeTasks: 0,
         completedTasks: 0,
         ltv: 0,
-        status: 'Dormant',
+        status: (o.client as any).status === 'suspended' ? 'Suspended' : 'Dormant',
         createdAt: o.createdAt
       };
     }
@@ -849,7 +991,7 @@ export default function AdminDashboard() {
     clientMap[key].ltv += (o.amountPaid || o.price || 0);
     if (['paid', 'paid_50', 'assigned', 'midpoint_submitted', 'midpoint_approved', 'paid_75', 'submitted', 'revision_requested'].includes(o.status)) {
       clientMap[key].activeTasks += 1;
-      clientMap[key].status = 'Active';
+      if (clientMap[key].status !== 'Suspended') clientMap[key].status = 'Active';
     } else if (['client_approved', 'completed', 'delivered'].includes(o.status)) {
       clientMap[key].completedTasks += 1;
     }
@@ -859,7 +1001,7 @@ export default function AdminDashboard() {
   const filteredClientRows = clientRows.filter(c => {
     if (clientSearch.trim()) {
       const q = clientSearch.toLowerCase();
-      return c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.phone.includes(q);
+      return c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q) || c.phone.toLowerCase().includes(q);
     }
     return true;
   }).sort((a, b) => {
@@ -868,16 +1010,55 @@ export default function AdminDashboard() {
     return 0;
   });
 
-  // Freelancer mapping
-  const filteredFreelancers = freelancers.filter(f => {
+  // Build Freelancer Directory Rows
+  const freelancerRows: FreelancerRow[] = freelancers.map(f => {
+    const fOrders = orders.filter(o => o.freelancerId === f.id || (o.freelancer?.email && o.freelancer.email.toLowerCase() === f.email.toLowerCase()));
+    const activeTasks = fOrders.filter(o => ['assigned', 'midpoint_submitted', 'midpoint_approved', 'submitted', 'qa_approved', 'revision_requested'].includes(o.status)).length;
+    const completedTasks = fOrders.filter(o => ['completed', 'delivered', 'client_approved'].includes(o.status)).length;
+    const totalEarnings = fOrders
+      .filter(o => o.payoutStatus === 'payout_released' || ['completed', 'delivered'].includes(o.status))
+      .reduce((sum, o) => sum + (o.freelancerPayoutAmount || 0), 0);
+    const pendingPayout = fOrders
+      .filter(o => o.payoutStatus === 'payout_approved' || ['qa_approved', 'client_approved'].includes(o.status))
+      .reduce((sum, o) => sum + (o.freelancerPayoutAmount || 0), 0);
+
+    return {
+      id: f.id,
+      name: f.name,
+      email: f.email,
+      phone: f.phone || '—',
+      services: f.services || [],
+      portfolioLink: f.portfolioLink,
+      bankDetails: f.bankDetails,
+      status: f.status === 'suspended' ? 'Suspended' : f.status === 'active' ? 'Active' : 'Active',
+      totalTasks: fOrders.length,
+      activeTasks,
+      completedTasks,
+      totalEarnings,
+      pendingPayout,
+      createdAt: f.createdAt,
+    };
+  });
+
+  const filteredFreelancers = freelancerRows.filter(f => {
     if (flSearch.trim()) {
       const q = flSearch.toLowerCase();
-      return f.name.toLowerCase().includes(q) || f.email.toLowerCase().includes(q);
+      return (
+        f.name.toLowerCase().includes(q) ||
+        f.email.toLowerCase().includes(q) ||
+        f.phone.toLowerCase().includes(q) ||
+        f.services.some(s => s.toLowerCase().includes(q))
+      );
     }
     if (flFilterSkill !== 'all') {
       return f.services.some(s => s.toLowerCase().includes(flFilterSkill.toLowerCase()));
     }
     return true;
+  }).sort((a, b) => {
+    if (flSort === 'earnings-high') return b.totalEarnings - a.totalEarnings;
+    if (flSort === 'tasks-high') return b.totalTasks - a.totalTasks;
+    if (flSort === 'active-high') return b.activeTasks - a.activeTasks;
+    return 0;
   });
 
   const goView = (view: string) => { setCurrentView(view); setSidebarOpen(false); };
@@ -1697,48 +1878,105 @@ export default function AdminDashboard() {
               </>
             )}
 
-            {/* ════ VIEW: FREELANCERS CRM SPREADSHEET ════ */}
+            {/* ════ VIEW: FREELANCERS CRM SPREADSHEET (BOOSTER DIRECTORY) ════ */}
             {currentView === 'freelancers' && (
               <>
                 <div className="ad-view-header">
-                  <p>Resource Directory</p>
-                  <h1>Freelancer Roster Grid</h1>
+                  <p>Specialist Talent &amp; Resource Directory</p>
+                  <h1>Freelancer Directory Grid</h1>
                 </div>
 
                 <div className="ad-grid-controls">
                   <div className="ad-grid-search">
                     <svg viewBox="0 0 20 20" fill="currentColor" style={{ width: 13, height: 13 }}><path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" /></svg>
-                    <input type="search" placeholder="Search Freelancer..." value={flSearch} onChange={e => setFlSearch(e.target.value)} />
+                    <input type="search" placeholder="Search Name, Email, Phone, Skill..." value={flSearch} onChange={e => setFlSearch(e.target.value)} />
                   </div>
                   <select className="ad-grid-select" value={flFilterSkill} onChange={e => setFlFilterSkill(e.target.value)}>
-                    <option value="all">Filter: Vetted Services (All)</option>
+                    <option value="all">Filter: All Vetted Skills</option>
                     <option value="web">Web Development</option>
                     <option value="design">Graphic Designing</option>
                     <option value="video">Video Editing</option>
+                    <option value="3d">3D Design &amp; Modeling</option>
+                    <option value="vfx">VFX &amp; Animation</option>
+                    <option value="ai">AI Services</option>
+                    <option value="software">Software &amp; App Development</option>
+                    <option value="marketing">Digital Marketing</option>
                   </select>
+                  <select className="ad-grid-select" value={flSort} onChange={e => setFlSort(e.target.value)}>
+                    <option value="earnings-high">Sort: Settled Earnings (High to Low)</option>
+                    <option value="tasks-high">Sort: Total Tasks (High to Low)</option>
+                    <option value="active-high">Sort: Active Tasks (High to Low)</option>
+                  </select>
+                  <button className="ad-export-btn" onClick={exportFreelancersToExcel} style={{ background: '#10b981', color: '#fff', fontWeight: 700, border: 'none', borderRadius: 6, padding: '8px 16px', cursor: 'pointer' }}>
+                    📊 Download Freelancers Sheet (Excel .CSV)
+                  </button>
                   {isMaster && <button className="ad-export-btn" onClick={() => setOnboardingOpen(true)}>+ Onboard Freelancer</button>}
                 </div>
 
                 <div className="ad-table-wrap">
                   <table className="ad-table">
                     <thead>
-                      <tr><th>Freelancer Name</th><th>Email</th><th>Vetted Skills</th><th>Workload Capacity</th><th>Ratings</th><th>Portfolio</th></tr>
+                      <tr>
+                        <th>Specialist &amp; Profile</th>
+                        <th>Contact Info</th>
+                        <th>Vetted Skills</th>
+                        <th>Assigned Tasks</th>
+                        <th>Active Production</th>
+                        <th>Lifetime Earnings</th>
+                        <th>Account Status</th>
+                      </tr>
                     </thead>
                     <tbody>
-                      {filteredFreelancers.map(f => (
-                        <tr key={f.id}>
-                          <td><b>{f.name}</b></td>
-                          <td>{f.email}</td>
-                          <td>
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              {f.services.map(s => <span className="fd-tech-pill" key={s} style={{ fontSize: 10 }}>{s}</span>)}
-                            </div>
+                      {filteredFreelancers.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} style={{ textAlign: 'center', color: '#888', padding: 32 }}>
+                            No specialist freelancers found matching your filter criteria.
                           </td>
-                          <td><span className="fd-status-pill submitted" style={{ fontSize: 10.5 }}>1/3 Active</span></td>
-                          <td>⭐⭐⭐⭐⭐ (5/5)</td>
-                          <td><a href={f.portfolioLink || '#'} target="_blank" rel="noreferrer" style={{ color: '#2563eb' }}>Open Link ↗</a></td>
                         </tr>
-                      ))}
+                      ) : (
+                        filteredFreelancers.map(f => (
+                          <tr
+                            key={f.id}
+                            onClick={() => setSelectedFreelancerModal(f)}
+                            style={{ cursor: 'pointer' }}
+                            title="Click row to inspect specialist profile, tasks & earnings history"
+                          >
+                            <td>
+                              <button
+                                className="ad-client-link"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedFreelancerModal(f);
+                                }}
+                              >
+                                👨‍💻 {f.name} <span style={{ fontSize: 11, color: '#2563eb' }}>↗</span>
+                              </button>
+                            </td>
+                            <td>{f.email} · {f.phone}</td>
+                            <td>
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                                {f.services.length > 0 ? (
+                                  f.services.map(s => <span className="fd-tech-pill" key={s} style={{ fontSize: 10 }}>{s}</span>)
+                                ) : (
+                                  <span style={{ fontSize: 11, color: '#94a3b8' }}>General Specialist</span>
+                                )}
+                              </div>
+                            </td>
+                            <td>{f.totalTasks} Task{f.totalTasks === 1 ? '' : 's'}</td>
+                            <td>
+                              <span className={f.activeTasks > 0 ? 'fd-status-pill submitted' : 'ad-status-dot-dormant'} style={{ fontSize: 11 }}>
+                                {f.activeTasks} Active
+                              </span>
+                            </td>
+                            <td><b>₹{f.totalEarnings.toLocaleString('en-IN')}</b></td>
+                            <td>
+                              <span className={f.status === 'Active' ? 'ad-status-dot-active' : 'ad-status-dot-dormant'}>
+                                {f.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -3563,6 +3801,213 @@ export default function AdminDashboard() {
                       }}
                     >
                       💬 Open Relay Chat with Client
+                    </button>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ═══════════ FREELANCER DOSSIER & PROFILE MODAL ═══════════ */}
+      {selectedFreelancerModal && (
+        <div className="ad-modal-overlay" onClick={() => setSelectedFreelancerModal(null)}>
+          <div className="ad-modal" style={{ maxWidth: 880, width: '92%' }} onClick={e => e.stopPropagation()}>
+            <div className="ad-modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div className="ad-dossier-avatar" style={{ background: 'linear-gradient(135deg, #059669, #10b981)' }}>
+                  {getInitials(selectedFreelancerModal.name)}
+                </div>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 20 }}>👨‍💻 {selectedFreelancerModal.name}</h2>
+                  <div style={{ fontSize: 13, color: '#64748b', marginTop: 2 }}>
+                    Specialist ID #{selectedFreelancerModal.id || 'N/A'} · Creative / Tech Specialist
+                  </div>
+                </div>
+              </div>
+              <button className="ad-modal-close" onClick={() => setSelectedFreelancerModal(null)}>×</button>
+            </div>
+
+            <div className="ad-modal-body" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+              {/* Contact and Status Header Bar */}
+              <div className="ad-dossier-header-bar">
+                <div style={{ flex: 1, display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Email Address</span>
+                    <strong style={{ fontSize: 13, color: '#1e293b' }}>{selectedFreelancerModal.email}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Phone / WhatsApp</span>
+                    <strong style={{ fontSize: 13, color: '#1e293b' }}>{selectedFreelancerModal.phone}</strong>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Account Status</span>
+                    <span className={selectedFreelancerModal.status === 'Active' ? 'ad-status-dot-active' : 'ad-status-dot-dormant'} style={{ display: 'inline-block', marginTop: 2 }}>
+                      {selectedFreelancerModal.status}
+                    </span>
+                  </div>
+                  {selectedFreelancerModal.portfolioLink && (
+                    <div>
+                      <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Portfolio / GitHub</span>
+                      <a href={selectedFreelancerModal.portfolioLink} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: '#2563eb', fontWeight: 600 }}>
+                        Open Portfolio Link ↗
+                      </a>
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <button
+                    className="ad-pag-btn"
+                    style={{
+                      borderColor: selectedFreelancerModal.status === 'Active' ? '#fca5a5' : '#86efac',
+                      color: selectedFreelancerModal.status === 'Active' ? '#dc2626' : '#16a34a',
+                      fontWeight: 700,
+                    }}
+                    onClick={() => handleToggleFreelancerStatus(selectedFreelancerModal.id, selectedFreelancerModal.status)}
+                  >
+                    {selectedFreelancerModal.status === 'Active' ? '🚫 Suspend Specialist' : '✓ Activate Specialist'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Vetted Skills List */}
+              <div style={{ margin: '14px 0', background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block', marginBottom: 6 }}>
+                  Vetted Competencies &amp; Services
+                </span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {selectedFreelancerModal.services.length > 0 ? (
+                    selectedFreelancerModal.services.map(s => <span className="fd-tech-pill" key={s}>{s}</span>)
+                  ) : (
+                    <span style={{ fontSize: 12, color: '#94a3b8' }}>No specific tags set</span>
+                  )}
+                </div>
+              </div>
+
+              {/* 4 Financial & Project KPIs */}
+              <div className="ad-dossier-kpis">
+                <div className="ad-dossier-kpi">
+                  <small>Lifetime Settled Payouts</small>
+                  <strong style={{ color: '#16a34a' }}>₹{selectedFreelancerModal.totalEarnings.toLocaleString('en-IN')}</strong>
+                </div>
+                <div className="ad-dossier-kpi">
+                  <small>Pending Escrow Payout</small>
+                  <strong style={{ color: '#f59e0b' }}>₹{selectedFreelancerModal.pendingPayout.toLocaleString('en-IN')}</strong>
+                </div>
+                <div className="ad-dossier-kpi">
+                  <small>Active Tasks</small>
+                  <strong style={{ color: '#2563eb' }}>{selectedFreelancerModal.activeTasks}</strong>
+                </div>
+                <div className="ad-dossier-kpi">
+                  <small>Completed Deliverables</small>
+                  <strong style={{ color: '#7c3aed' }}>{selectedFreelancerModal.completedTasks}</strong>
+                </div>
+              </div>
+
+              {/* Complete Assigned Tasks & Orders History Table */}
+              <div>
+                <h3 style={{ fontSize: 15, margin: '0 0 12px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span>📋 Assigned Projects &amp; Deliverables History ({selectedFreelancerModal.totalTasks})</span>
+                </h3>
+
+                {(() => {
+                  const flOrders = orders.filter(
+                    o => o.freelancerId === selectedFreelancerModal.id || (o.freelancer?.email && o.freelancer.email.toLowerCase() === selectedFreelancerModal.email.toLowerCase())
+                  );
+
+                  if (flOrders.length === 0) {
+                    return (
+                      <div className="ad-assign-empty-card" style={{ padding: '24px 16px' }}>
+                        <p style={{ color: '#888', margin: 0, fontSize: 13 }}>No tasks assigned to this specialist yet.</p>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <div className="ad-table-wrap">
+                      <table className="ad-table" style={{ fontSize: 12 }}>
+                        <thead>
+                          <tr>
+                            <th>Order ID</th>
+                            <th>Category &amp; Tier</th>
+                            <th>Status</th>
+                            <th>Agreed Payout Fee</th>
+                            <th>Client Name</th>
+                            <th>Deliverables / Brief</th>
+                            <th>Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {flOrders.map(ord => (
+                            <tr key={ord.id}>
+                              <td><b>#WN-{ord.id}</b></td>
+                              <td>
+                                <div><b>{ord.serviceCategory}</b></div>
+                                <small style={{ color: '#64748b' }}>Tier: {ord.tier?.toUpperCase() || 'STANDARD'}</small>
+                              </td>
+                              <td>
+                                <span className={`fd-status-pill ${ord.status}`}>
+                                  {ord.status.replace('_', ' ').toUpperCase()}
+                                </span>
+                              </td>
+                              <td>
+                                <b style={{ color: '#16a34a' }}>₹{(ord.freelancerPayoutAmount || 0).toLocaleString('en-IN')}</b>
+                                <div style={{ fontSize: 10.5, color: '#64748b' }}>Status: {(ord.payoutStatus || 'pending').replace('_', ' ')}</div>
+                              </td>
+                              <td>
+                                <span style={{ fontWeight: 600, color: '#1e293b' }}>{ord.client?.name || `Client #${ord.clientId}`}</span>
+                              </td>
+                              <td>
+                                {ord.submissionLink ? (
+                                  <a href={ord.submissionLink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 600 }}>
+                                    Brief Link ↗
+                                  </a>
+                                ) : (
+                                  <span style={{ color: '#94a3b8' }}>—</span>
+                                )}
+                              </td>
+                              <td>
+                                <button
+                                  className="ad-pag-btn"
+                                  style={{ padding: '4px 8px', fontSize: 11 }}
+                                  onClick={() => {
+                                    setSelectedFreelancerModal(null);
+                                    setRelayOrder(ord);
+                                  }}
+                                >
+                                  💬 Chat
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+
+            <div className="ad-modal-footer" style={{ borderTop: '1px solid #e2e8f0' }}>
+              <button className="ad-btn-secondary" onClick={() => setSelectedFreelancerModal(null)}>
+                Close Dossier
+              </button>
+              {(() => {
+                const flOrders = orders.filter(
+                  o => o.freelancerId === selectedFreelancerModal.id || (o.freelancer?.email && o.freelancer.email.toLowerCase() === selectedFreelancerModal.email.toLowerCase())
+                );
+                if (flOrders.length > 0) {
+                  return (
+                    <button
+                      className="ad-btn-primary"
+                      onClick={() => {
+                        const targetOrder = flOrders[0];
+                        setSelectedFreelancerModal(null);
+                        setRelayOrder(targetOrder);
+                      }}
+                    >
+                      💬 Open Relay Chat with Specialist
                     </button>
                   );
                 }
