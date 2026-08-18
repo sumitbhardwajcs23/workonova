@@ -100,6 +100,7 @@ export default function AdminDashboard() {
   // ── CORE DATA STATES ──────────────────────────────────────────
   const [orders, setOrders] = useState<Order[]>([]);
   const [freelancers, setFreelancers] = useState<Freelancer[]>([]);
+  const [dbClients, setDbClients] = useState<any[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [financials, setFinancials] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -205,6 +206,9 @@ export default function AdminDashboard() {
       const resOrders = await fetch(`${API_BASE}/api/admin/orders`, { headers: { Authorization: `Bearer ${token}` } });
       const dataOrders = await resOrders.json();
       if (!resOrders.ok) throw new Error(dataOrders.error || 'Failed to fetch admin orders');
+
+      const resClients = await fetch(`${API_BASE}/api/admin/clients`, { headers: { Authorization: `Bearer ${token}` } });
+      const dataClients = await resClients.json();
       
       const resFl = await fetch(`${API_BASE}/api/admin/freelancers`, { headers: { Authorization: `Bearer ${token}` } });
       const dataFl = await resFl.json();
@@ -239,6 +243,7 @@ export default function AdminDashboard() {
         return timeB - timeA || b.id - a.id;
       });
       setOrders(sortedOrders);
+      if (resClients.ok) setDbClients(dataClients.data || []);
       if (resFl.ok) setFreelancers(dataFl.data || []);
       if (resT.ok) setTestimonials(dataT.data || []);
       if (resB.ok) setBlogsList(dataB.data || []);
@@ -970,6 +975,26 @@ export default function AdminDashboard() {
   }
 
   const clientMap: Record<string, ClientRow> = {};
+
+  // 1. Initialize from all registered dbClients
+  dbClients.forEach(cl => {
+    const key = (cl.email || '').toLowerCase();
+    if (!key) return;
+    clientMap[key] = {
+      id: cl.id,
+      name: cl.name,
+      email: cl.email,
+      phone: cl.phone || '—',
+      totalOrders: 0,
+      activeTasks: 0,
+      completedTasks: 0,
+      ltv: 0,
+      status: cl.status === 'suspended' ? 'Suspended' : 'Active',
+      createdAt: cl.createdAt
+    };
+  });
+
+  // 2. Enrich with orders placed
   orders.forEach(o => {
     if (!o.client) return;
     const key = o.client.email.toLowerCase();
@@ -986,6 +1011,10 @@ export default function AdminDashboard() {
         status: (o.client as any).status === 'suspended' ? 'Suspended' : 'Dormant',
         createdAt: o.createdAt
       };
+    } else {
+      if (o.client.phone && clientMap[key].phone === '—') {
+        clientMap[key].phone = o.client.phone;
+      }
     }
     clientMap[key].totalOrders += 1;
     clientMap[key].ltv += (o.amountPaid || o.price || 0);
@@ -1861,7 +1890,25 @@ export default function AdminDashboard() {
                               🏢 {c.name} <span style={{ fontSize: 11, color: '#2563eb' }}>↗</span>
                             </button>
                           </td>
-                          <td>{c.email} · {c.phone}</td>
+                          <td>
+                            <div><b>{c.email}</b></div>
+                            {c.phone && c.phone !== '—' ? (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                                <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>📞 {c.phone}</span>
+                                <a
+                                  href={`https://wa.me/${c.phone.replace(/[^\d]/g, '')}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={e => e.stopPropagation()}
+                                  style={{ fontSize: 10, background: '#25D366', color: '#fff', padding: '1px 6px', borderRadius: 4, textDecoration: 'none', fontWeight: 700 }}
+                                >
+                                  WhatsApp 💬
+                                </a>
+                              </div>
+                            ) : (
+                              <small style={{ color: '#94a3b8' }}>No phone recorded</small>
+                            )}
+                          </td>
                           <td>{c.totalOrders} Orders</td>
                           <td>{c.activeTasks} Active</td>
                           <td><b>₹{c.ltv.toLocaleString('en-IN')}</b></td>
@@ -1952,7 +1999,25 @@ export default function AdminDashboard() {
                                 👨‍💻 {f.name} <span style={{ fontSize: 11, color: '#2563eb' }}>↗</span>
                               </button>
                             </td>
-                            <td>{f.email} · {f.phone}</td>
+                            <td>
+                              <div><b>{f.email}</b></div>
+                              {f.phone && f.phone !== '—' ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                                  <span style={{ fontSize: 12, color: '#059669', fontWeight: 600 }}>📞 {f.phone}</span>
+                                  <a
+                                    href={`https://wa.me/${f.phone.replace(/[^\d]/g, '')}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    onClick={e => e.stopPropagation()}
+                                    style={{ fontSize: 10, background: '#25D366', color: '#fff', padding: '1px 6px', borderRadius: 4, textDecoration: 'none', fontWeight: 700 }}
+                                  >
+                                    WhatsApp 💬
+                                  </a>
+                                </div>
+                              ) : (
+                                <small style={{ color: '#94a3b8' }}>No phone recorded</small>
+                              )}
+                            </td>
                             <td>
                               <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                                 {f.services.length > 0 ? (
@@ -3650,7 +3715,27 @@ export default function AdminDashboard() {
                   </div>
                   <div>
                     <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Phone / WhatsApp</span>
-                    <strong style={{ fontSize: 13, color: '#1e293b' }}>{selectedClientModal.phone}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                      <strong style={{ fontSize: 13, color: '#1e293b' }}>{selectedClientModal.phone}</strong>
+                      {selectedClientModal.phone && selectedClientModal.phone !== '—' && (
+                        <>
+                          <a
+                            href={`https://wa.me/${selectedClientModal.phone.replace(/[^\d]/g, '')}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ fontSize: 10, background: '#25D366', color: '#fff', padding: '2px 6px', borderRadius: 4, textDecoration: 'none', fontWeight: 700 }}
+                          >
+                            WhatsApp 💬
+                          </a>
+                          <a
+                            href={`tel:${selectedClientModal.phone.replace(/\s+/g, '')}`}
+                            style={{ fontSize: 10, background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: 4, textDecoration: 'none', fontWeight: 700 }}
+                          >
+                            Call 📞
+                          </a>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Account Status</span>
@@ -3839,7 +3924,27 @@ export default function AdminDashboard() {
                   </div>
                   <div>
                     <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Phone / WhatsApp</span>
-                    <strong style={{ fontSize: 13, color: '#1e293b' }}>{selectedFreelancerModal.phone}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                      <strong style={{ fontSize: 13, color: '#1e293b' }}>{selectedFreelancerModal.phone}</strong>
+                      {selectedFreelancerModal.phone && selectedFreelancerModal.phone !== '—' && (
+                        <>
+                          <a
+                            href={`https://wa.me/${selectedFreelancerModal.phone.replace(/[^\d]/g, '')}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            style={{ fontSize: 10, background: '#25D366', color: '#fff', padding: '2px 6px', borderRadius: 4, textDecoration: 'none', fontWeight: 700 }}
+                          >
+                            WhatsApp 💬
+                          </a>
+                          <a
+                            href={`tel:${selectedFreelancerModal.phone.replace(/\s+/g, '')}`}
+                            style={{ fontSize: 10, background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: 4, textDecoration: 'none', fontWeight: 700 }}
+                          >
+                            Call 📞
+                          </a>
+                        </>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <span style={{ fontSize: 11, color: '#64748b', textTransform: 'uppercase', fontWeight: 700, display: 'block' }}>Account Status</span>

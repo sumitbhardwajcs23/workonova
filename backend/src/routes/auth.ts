@@ -139,6 +139,7 @@ authApp.post('/verify-email', async (c) => {
         id: userRecord.id,
         name: userRecord.name,
         email: userRecord.email,
+        phone: userRecord.phone || null,
         role: role,
         emailVerified: 1,
       }
@@ -223,7 +224,7 @@ authApp.post('/register', async (c) => {
     return c.json({
       token,
       requiresVerification: true,
-      user: { id: newUser.id, name: newUser.name, email: newUser.email, role: newUser.role, emailVerified: 0 },
+      user: { id: newUser.id, name: newUser.name, email: newUser.email, phone: newUser.phone || null, role: newUser.role, emailVerified: 0 },
     }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -298,6 +299,7 @@ authApp.post('/login', async (c) => {
         id: user.id,
         name: user.name,
         email: user.email,
+        phone: user.phone || null,
         role: user.role,
         emailVerified: 1,
         services: 'services' in user && user.services ? JSON.parse(user.services as string) : [],

@@ -66,6 +66,22 @@ adminApp.get('/freelancers', roleGuard(['admin', 'qa_admin']), async (c) => {
   }
 });
 
+// ── GET Clients (for client directory) ──
+adminApp.get('/clients', roleGuard(['admin', 'qa_admin']), async (c) => {
+  try {
+    const list = await db.select({
+      id: clients.id, name: clients.name, email: clients.email, phone: clients.phone,
+      services: clients.services, status: clients.status, createdAt: clients.createdAt,
+    }).from(clients);
+
+    return c.json({
+      data: list.map(cl => ({ ...cl, role: 'client', services: safeJsonArray(cl.services) }))
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
 // ── GET All Users (admin view: all 3 tables merged) ──
 adminApp.get('/users', roleGuard(['admin']), async (c) => {
   try {
@@ -92,6 +108,7 @@ adminApp.post('/users', roleGuard(['admin']), async (c) => {
     const name          = sanitise(body.name || '');
     const email         = sanitise(body.email || '').toLowerCase();
     const password      = body.password || '';
+    const phone         = sanitise(body.phone || '').trim();
     const services: string[] = Array.isArray(body.services) ? body.services : [];
     const portfolioLink = sanitise(body.portfolioLink || '');
     const role          = body.role || 'freelancer';
@@ -108,6 +125,7 @@ adminApp.post('/users', roleGuard(['admin']), async (c) => {
     } else {
       const rows = await db.insert(freelancers).values({
         name, email, passwordHash,
+        phone: phone || null,
         services: services.length > 0 ? JSON.stringify(services) : null,
         portfolioLink: portfolioLink || null,
         status: 'active', emailVerified: 1, firstLogin: 1,
@@ -118,7 +136,7 @@ adminApp.post('/users', roleGuard(['admin']), async (c) => {
     const sent = await sendWelcomeEmail(createdUser.email, createdUser.name, role);
     if (!sent) console.error(`❌ Failed to send welcome email to onboarded user ${createdUser.email}`);
 
-    return c.json({ data: { id: createdUser.id, name: createdUser.name, email: createdUser.email, role, services, portfolioLink } }, 201);
+    return c.json({ data: { id: createdUser.id, name: createdUser.name, email: createdUser.email, phone: createdUser.phone, role, services, portfolioLink } }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
