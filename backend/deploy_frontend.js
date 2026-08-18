@@ -115,13 +115,13 @@ async function run() {
 
     for (const file of files) {
       const relativePath = path.relative(distPath, file).replace(/\\/g, '/');
-      const fileStream = fs.createReadStream(file);
+      const fileBuffer = fs.readFileSync(file);
       const contentType = mime.lookup(file) || 'application/octet-stream';
 
       await s3.send(new PutObjectCommand({
         Bucket: bucketName,
         Key: relativePath,
-        Body: fileStream,
+        Body: fileBuffer,
         ContentType: contentType,
       }));
       console.log(`   Uploaded: ${relativePath} (${contentType})`);
