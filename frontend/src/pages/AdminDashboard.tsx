@@ -3107,14 +3107,14 @@ export default function AdminDashboard() {
 
       {/* MESSAGES RELAY & CONTROL STATION MODAL */}
       {relayOrder && (() => {
-        const clientMsgs = chatMessages.filter(m => m.senderRole === 'client' || m.targetAudience === 'client_only' || m.targetAudience === 'all');
-        const flMsgs = chatMessages.filter(m => m.senderRole === 'freelancer' || m.targetAudience === 'freelancer_only' || m.targetAudience === 'all');
-        const internalMsgs = chatMessages.filter(m => m.targetAudience === 'internal' || m.senderId === 0);
+        // Filter out system audit logs to keep chat clean and focused on human communication
+        const humanMessages = chatMessages.filter(m => m.senderId !== 0 && m.senderRole !== 'system');
+        const clientMsgs = humanMessages.filter(m => m.senderRole === 'client' || m.targetAudience === 'client_only' || m.targetAudience === 'all');
+        const flMsgs = humanMessages.filter(m => m.senderRole === 'freelancer' || m.targetAudience === 'freelancer_only' || m.targetAudience === 'all');
 
-        let filteredList = chatMessages;
+        let filteredList = humanMessages;
         if (chatChannelFilter === 'client') filteredList = clientMsgs;
         else if (chatChannelFilter === 'freelancer') filteredList = flMsgs;
-        else if (chatChannelFilter === 'internal') filteredList = internalMsgs;
 
         return (
           <div className="ad-modal-overlay" onClick={() => setRelayOrder(null)}>
@@ -3157,7 +3157,7 @@ export default function AdminDashboard() {
                     cursor: 'pointer'
                   }}
                 >
-                  🌐 All Messages ({chatMessages.length})
+                  🌐 All Messages ({humanMessages.length})
                 </button>
                 <button
                   type="button"
@@ -3190,22 +3190,6 @@ export default function AdminDashboard() {
                   }}
                 >
                   🛠️ Specialist Channel ({flMsgs.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setChatChannelFilter('internal')}
-                  style={{
-                    padding: '5px 12px',
-                    borderRadius: 6,
-                    border: 'none',
-                    background: chatChannelFilter === 'internal' ? '#d97706' : '#f1f5f9',
-                    color: chatChannelFilter === 'internal' ? '#ffffff' : '#475569',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer'
-                  }}
-                >
-                  ⚙️ System Logs ({internalMsgs.length})
                 </button>
               </div>
 
@@ -3262,7 +3246,7 @@ export default function AdminDashboard() {
                               {msg.messageText}
                             </div>
                             <div className="ad-chat-time">
-                              {isSystem ? 'SYSTEM AUDIT' : `${msg.senderRole.toUpperCase()}`} · {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {`${msg.senderRole.toUpperCase()}`} · {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           </div>
                         </div>
