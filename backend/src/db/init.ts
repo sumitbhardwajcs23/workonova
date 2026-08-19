@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import bcrypt from 'bcryptjs';
-import { db } from './index.js';
+import { db, sql } from './index.js';
 import { clients, freelancers, admins, orders, messages, testimonials, blogs, bundles, teamMembers } from './schema.js';
 import { eq } from 'drizzle-orm';
 
@@ -8,6 +8,19 @@ export async function initDatabase() {
   console.log('📦 Starting WORKONOVA Database Setup & Seeding...');
 
   try {
+    // ── Safe Schema Columns Migration ───────────────────────
+    try {
+      if (sql) {
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS assignment_status TEXT DEFAULT 'accepted'`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS decline_reason TEXT`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_by TEXT`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_at TEXT`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS accepted_at TEXT`;
+        console.log('✅ Database schema migration verified (orders table columns synced)!');
+      }
+    } catch (migErr: any) {
+      console.log('ℹ️ Schema migration note:', migErr?.message || migErr);
+    }
     // ── 1. Seed Admin Accounts ──────────────────────────────
     const existingAdmins = await db.select().from(admins).limit(1);
     if (existingAdmins.length === 0) {

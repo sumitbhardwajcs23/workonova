@@ -12,6 +12,11 @@ interface Order {
   tier: string;
   price: number;
   status: string;
+  assignmentStatus?: string; // 'pending_acceptance' | 'accepted' | 'declined'
+  declineReason?: string;
+  declinedBy?: string;
+  declinedAt?: string;
+  acceptedAt?: string;
   milestoneStage?: number;
   amountPaid?: number;
   description: string;
@@ -1673,10 +1678,17 @@ export default function AdminDashboard() {
                                         {/* Order cards in this category */}
                                         <div className="ad-qc-grid">
                                           {catOrders.map(o => (
-                                            <div className="ad-qc-card" key={o.id}>
+                                            <div className="ad-qc-card" key={o.id} style={o.declineReason ? { borderColor: '#fca5a5' } : {}}>
                                               <div className="ad-qc-header">
                                                 <div>
-                                                  <h3 style={{ margin: 0, fontSize: 16 }}>Order #WN-{o.id}</h3>
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                                    <h3 style={{ margin: 0, fontSize: 16 }}>Order #WN-{o.id}</h3>
+                                                    {o.declineReason && (
+                                                      <span style={{ fontSize: 10, fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '2px 6px', borderRadius: 4, border: '1px solid #f87171' }}>
+                                                        DECLINED
+                                                      </span>
+                                                    )}
+                                                  </div>
                                                   <small style={{ color: '#888', fontSize: 12 }}>{o.serviceCategory}</small>
                                                 </div>
                                                 <div style={{ textAlign: 'right' }}>
@@ -1685,6 +1697,15 @@ export default function AdminDashboard() {
                                                 </div>
                                               </div>
                                               <p className="ad-qc-brief">{o.description || 'No brief details provided.'}</p>
+
+                                              {/* Decline Notice Banner if previously rejected */}
+                                              {o.declineReason && (
+                                                <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: '#991b1b', margin: '8px 0' }}>
+                                                  <b>⚠️ Declined by {o.declinedBy || 'Specialist'}:</b> "{o.declineReason}"
+                                                  {o.declinedAt && <div style={{ fontSize: 10.5, color: '#b91c1c', marginTop: 2 }}>Declined on: {new Date(o.declinedAt).toLocaleString()}</div>}
+                                                </div>
+                                              )}
+
                                               <div className="ad-assign-order-meta">
                                                 <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
                                                 <span>Status: <b className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</b></span>
@@ -1702,7 +1723,7 @@ export default function AdminDashboard() {
                                                     );
                                                   }}
                                                 >
-                                                  🎯 Assign Task to Freelancer
+                                                  {o.declineReason ? '🔄 Re-Assign to New Specialist' : '🎯 Assign Task to Freelancer'}
                                                 </button>
                                               </div>
                                             </div>
@@ -1744,9 +1765,20 @@ export default function AdminDashboard() {
                                     <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
                                     <span>Agreed Payout: <b>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></span>
                                   </div>
-                                  <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                    <span className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</span>
-                                    {o.midpointSubmissionLink && <span style={{ fontSize: 12, color: '#16a34a' }}>✓ 50% Midpoint uploaded</span>}
+                                  <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                      <span className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</span>
+                                      {o.assignmentStatus === 'pending_acceptance' ? (
+                                        <span style={{ fontSize: 10.5, fontWeight: 800, color: '#b45309', background: '#fef3c7', padding: '2px 7px', borderRadius: 4, border: '1px solid #f59e0b', textTransform: 'uppercase' }}>
+                                          ⏳ Awaiting Acceptance
+                                        </span>
+                                      ) : (
+                                        <span style={{ fontSize: 10.5, fontWeight: 800, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 4, border: '1px solid #86efac', textTransform: 'uppercase' }}>
+                                          ✓ In Production
+                                        </span>
+                                      )}
+                                    </div>
+                                    {o.midpointSubmissionLink && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ 50% Midpoint uploaded</span>}
                                   </div>
                                   <div className="ad-qc-actions" style={{ display: 'flex', gap: 8 }}>
                                     <button

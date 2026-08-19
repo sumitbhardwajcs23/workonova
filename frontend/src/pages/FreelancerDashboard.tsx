@@ -17,6 +17,11 @@ interface Task {
   midpointApprovedAt?: string;
   qaApprovedLink?: string;
   status: string;
+  assignmentStatus?: string; // 'pending_acceptance' | 'accepted' | 'declined'
+  declineReason?: string;
+  declinedBy?: string;
+  declinedAt?: string;
+  acceptedAt?: string;
   milestoneStage?: number;
   amountPaid?: number;
   freelancerPayoutAmount: number;
@@ -75,6 +80,21 @@ export default function FreelancerDashboard() {
     setTimeout(() => setSuccess(''), 4000);
   };
 
+  // Project Offer Acceptance / Decline States
+  const [processingOfferId, setProcessingOfferId] = useState<number | null>(null);
+  const [declineModalTask, setDeclineModalTask] = useState<Task | null>(null);
+  const [declineReason, setDeclineReason] = useState('Schedule / Bandwidth Full');
+  const [declineCustomNote, setDeclineCustomNote] = useState('');
+  const [declineSubmitting, setDeclineSubmitting] = useState(false);
+
+  const DECLINE_REASONS = [
+    { id: 'bandwidth', label: 'Schedule / Bandwidth Full', icon: '🗓️' },
+    { id: 'domain', label: 'Outside Technical Domain', icon: '🛠️' },
+    { id: 'timeline', label: 'Timeline Too Tight', icon: '⏳' },
+    { id: 'payout', label: 'Budget / Payout Mismatch', icon: '💵' },
+    { id: 'other', label: 'Other Specific Reason', icon: '📝' },
+  ];
+
   // Submit Modal state
   const [submittingTask, setSubmittingTask] = useState<Task | null>(null);
   const [deliveryLink, setDeliveryLink] = useState('');
@@ -122,6 +142,73 @@ export default function FreelancerDashboard() {
         return;
       }
       setSelectedServices([...selectedServices, service]);
+    }
+  };
+
+  // Accept Project Offer Handler
+  const handleAcceptTask = async (taskId: number) => {
+    setProcessingOfferId(taskId);
+    try {
+      const res = await fetch(`${API_BASE}/api/freelancer/tasks/${taskId}/accept`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to accept project assignment');
+      
+      setTasksList(prev => prev.map(t => t.id === taskId ? {
+        ...t,
+        assignmentStatus: 'accepted',
+        acceptedAt: new Date().toISOString(),
+        status: 'assigned'
+      } : t));
+      triggerToast(`🎉 Project #WN-${taskId} officially accepted! Production is now active.`);
+      fetchTasks(true);
+    } catch (err: any) {
+      triggerToast(`❌ Error: ${err.message}`);
+    } finally {
+      setProcessingOfferId(null);
+    }
+  };
+
+  // Open Decline Modal
+  const handleOpenDeclineModal = (task: Task) => {
+    setDeclineModalTask(task);
+    setDeclineReason('Schedule / Bandwidth Full');
+    setDeclineCustomNote('');
+  };
+
+  // Submit Decline Handler
+  const handleSubmitDecline = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!declineModalTask) return;
+    setDeclineSubmitting(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/freelancer/tasks/${declineModalTask.id}/reject`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          reason: declineReason,
+          customNote: declineCustomNote.trim()
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to decline project assignment');
+
+      setTasksList(prev => prev.filter(t => t.id !== declineModalTask.id));
+      triggerToast(`⚠️ Project #WN-${declineModalTask.id} declined. Order returned to Admin Desk.`);
+      setDeclineModalTask(null);
+      fetchTasks(true);
+    } catch (err: any) {
+      triggerToast(`❌ Error: ${err.message}`);
+    } finally {
+      setDeclineSubmitting(false);
     }
   };
 
@@ -432,6 +519,8 @@ export default function FreelancerDashboard() {
 
   // ── COUNTS & FILTERING ────────────────────────────────────────
   const activeTasks = tasksList.filter(t => !['delivered', 'cancelled'].includes(t.status));
+  const pendingOffers = tasksList.filter(t => t.assignmentStatus === 'pending_acceptance' && !['delivered', 'cancelled'].includes(t.status));
+  const pendingOffersCount = pendingOffers.length;
 
   const getCategoryFromService = (service: string): string => {
     const s = service.toLowerCase();
@@ -447,6 +536,8 @@ export default function FreelancerDashboard() {
       // Status/workflow filter
       if (currentView === 'all') {
         if (t.status === 'delivered' || t.status === 'cancelled') return false;
+      } else if (currentView === 'offers') {
+        if (t.assignmentStatus !== 'pending_acceptance' || t.status === 'delivered' || t.status === 'cancelled') return false;
       } else if (currentView === 'revision') {
         if (t.status !== 'revision_requested') return false;
       } else if (currentView === 'review') {
@@ -496,6 +587,11 @@ export default function FreelancerDashboard() {
           <button className={`fd-nav-item${currentView === 'all' ? ' active' : ''}`} onClick={() => { setCurrentView('all'); setSidebarOpen(false); }}>
             <span className="fd-nav-icon">📁</span><span>All Active Tasks</span>
             {activeTasks.length > 0 && <span className="fd-nav-badge">{activeTasks.length}</span>}
+          </button>
+
+          <button className={`fd-nav-item${currentView === 'offers' ? ' active' : ''}`} onClick={() => { setCurrentView('offers'); setSidebarOpen(false); }}>
+            <span className="fd-nav-icon">⚡</span><span>New Offers</span>
+            {pendingOffersCount > 0 && <span className="fd-nav-badge offer-pulse">{pendingOffersCount} NEW</span>}
           </button>
           
           <button className={`fd-nav-item${currentView === 'cat-web' ? ' active' : ''}`} onClick={() => { setCurrentView('cat-web'); setSidebarOpen(false); }}>
@@ -597,15 +693,64 @@ export default function FreelancerDashboard() {
                     const cat = getCategoryFromService(task.serviceCategory);
                     const tech = getTechTags(cat);
                     const client = getClientName(task.id);
+                    const isPendingOffer = task.assignmentStatus === 'pending_acceptance';
                     return (
-                      <article className={`fd-task-card cat-${cat}`} key={task.id}>
+                      <article className={`fd-task-card cat-${cat}${isPendingOffer ? ' offer-pending' : ''}`} key={task.id}>
+                        {/* ⚡ PROMINENT ASSIGNMENT OFFER BANNER */}
+                        {isPendingOffer && (
+                          <div className="fd-offer-banner">
+                            <div className="fd-offer-header">
+                              <div className="fd-offer-badge">
+                                <span className="fd-pulse-dot" />
+                                <span>⚡ NEW PROJECT OFFER — ACTION REQUIRED</span>
+                              </div>
+                              <div className="fd-offer-payout">
+                                <small>OFFERED SPECIALIST PAYOUT</small>
+                                <b>₹{task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}</b>
+                              </div>
+                            </div>
+                            <p className="fd-offer-text">
+                              You have been matched by Workonova QA Leadership for this project based on your verified skillset. Review the brief below. Click <b>Accept Project</b> to start work and claim the payout, or <b>Decline Offer</b> to release the assignment back to the desk.
+                            </p>
+                            <div className="fd-offer-actions">
+                              <button
+                                type="button"
+                                className="fd-btn-accept"
+                                disabled={processingOfferId === task.id}
+                                onClick={() => handleAcceptTask(task.id)}
+                              >
+                                {processingOfferId === task.id ? 'Accepting… ⏳' : `✓ Accept Project & Lock ₹${task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}`}
+                              </button>
+                              <button
+                                type="button"
+                                className="fd-btn-decline"
+                                disabled={processingOfferId === task.id}
+                                onClick={() => handleOpenDeclineModal(task)}
+                              >
+                                ✕ Decline Offer
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
                         <div className="fd-card-head">
                           <div className="fd-card-tags">
                             <span className={`fd-cat-pill ${cat}`}>{task.serviceCategory}</span>
                             <span className="fd-order-id">ORDER #WN-2026-{task.id}</span>
+                            {isPendingOffer && (
+                              <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid #f59e0b', padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase' }}>
+                                ⚡ ACTION REQUIRED
+                              </span>
+                            )}
                           </div>
                           <div className="fd-card-right">
-                            <span className={`fd-status-pill ${task.status}`}>{task.status.replace('_', ' ').toUpperCase()}</span>
+                            {isPendingOffer ? (
+                              <span style={{ fontSize: 11, fontWeight: 800, color: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', padding: '3px 8px', borderRadius: 4, border: '1px solid #f59e0b', textTransform: 'uppercase' }}>
+                                ⏳ PENDING ACCEPTANCE
+                              </span>
+                            ) : (
+                              <span className={`fd-status-pill ${task.status}`}>{task.status.replace('_', ' ').toUpperCase()}</span>
+                            )}
                             <span className="fd-assigned">Payout: <b>₹{task.freelancerPayoutAmount?.toLocaleString() || 0}</b></span>
                           </div>
                         </div>
@@ -673,80 +818,106 @@ export default function FreelancerDashboard() {
                         </div>
 
                         <div className="fd-card-actions">
-                          <button className="fd-action-btn" onClick={() => setActiveChatTask(task)}>
-                            💬 Ask Clarification
-                          </button>
+                          {isPendingOffer ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%' }}>
+                              <button
+                                className="fd-action-btn primary"
+                                style={{ background: '#56c41a', borderColor: '#389e0d', color: '#ffffff', fontWeight: 'bold' }}
+                                disabled={processingOfferId === task.id}
+                                onClick={() => handleAcceptTask(task.id)}
+                              >
+                                {processingOfferId === task.id ? 'Accepting… ⏳' : '✓ Accept Project Assignment'}
+                              </button>
+                              <button
+                                className="fd-action-btn"
+                                style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.4)' }}
+                                disabled={processingOfferId === task.id}
+                                onClick={() => handleOpenDeclineModal(task)}
+                              >
+                                ✕ Decline Assignment
+                              </button>
+                              <button className="fd-action-btn" onClick={() => setActiveChatTask(task)}>
+                                💬 Ask Clarification
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <button className="fd-action-btn" onClick={() => setActiveChatTask(task)}>
+                                💬 Ask Clarification
+                              </button>
 
-                          {/* 50% Midpoint Submission Trigger */}
-                          {['assigned', 'paid_50'].includes(task.status) && (
-                            <button
-                              className="fd-action-btn primary"
-                              style={{ background: '#6366f1', borderColor: '#4f46e5' }}
-                              onClick={() => {
-                                setMidpointModalTask(task);
-                                setMidpointLink('');
-                                setMidpointNotes('');
-                              }}
-                            >
-                              📤 Submit 50% Midpoint Deliverable →
-                            </button>
+                              {/* 50% Midpoint Submission Trigger */}
+                              {['assigned', 'paid_50'].includes(task.status) && (
+                                <button
+                                  className="fd-action-btn primary"
+                                  style={{ background: '#6366f1', borderColor: '#4f46e5' }}
+                                  onClick={() => {
+                                    setMidpointModalTask(task);
+                                    setMidpointLink('');
+                                    setMidpointNotes('');
+                                  }}
+                                >
+                                  📤 Submit 50% Midpoint Deliverable →
+                                </button>
+                              )}
+
+                              {task.status === 'midpoint_submitted' && (
+                                <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, padding: '6px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: 6, border: '1px solid #f59e0b' }}>
+                                  ⏳ 50% Midpoint Under Client Review
+                                </span>
+                              )}
+
+                              {/* 100% Final Deliverables Trigger */}
+                              {['midpoint_approved', 'paid_75', 'revision_requested'].includes(task.status) && (
+                                <button
+                                  className="fd-action-btn primary"
+                                  style={{ background: '#10b981', borderColor: '#059669' }}
+                                  onClick={() => setSubmittingTask(task)}
+                                >
+                                  🚀 Deliver 100% Final Work →
+                                </button>
+                              )}
+
+                              {['submitted', 'qa_approved'].includes(task.status) && (
+                                <span style={{ fontSize: 12, color: '#818cf8', fontWeight: 600, padding: '6px 12px', background: 'rgba(129, 140, 248, 0.1)', borderRadius: 6, border: '1px solid #818cf8' }}>
+                                  ⏳ Final Deliverables Under QA &amp; Client Review
+                                </span>
+                              )}
+
+                              {task.status === 'client_approved' && (
+                                <span style={{ fontSize: 12, color: '#34d399', fontWeight: 600, padding: '6px 12px', background: 'rgba(52, 211, 153, 0.1)', borderRadius: 6, border: '1px solid #34d399' }}>
+                                  🛡️ Client Approved · Payout Regulated by Admin
+                                </span>
+                              )}
+
+                              {['completed', 'delivered'].includes(task.status) && (
+                                <button
+                                  className="fd-action-btn"
+                                  style={{ background: '#064e3b', color: '#34d399', borderColor: '#10b981', fontWeight: 'bold' }}
+                                  onClick={() => {
+                                    downloadFreelancerPayoutVoucherPDF({
+                                      orderId: task.id,
+                                      freelancerName: profile?.name || user?.name || 'Vetted Specialist',
+                                      freelancerEmail: profile?.email || user?.email || 'specialist@workonova.com',
+                                      serviceCategory: task.serviceCategory,
+                                      tier: task.tier || 'STANDARD',
+                                      payoutAmount: task.freelancerPayoutAmount || 10000,
+                                      payoutStatus: task.payoutStatus || 'payout_released',
+                                      payoutReleasedAt: task.payoutReleasedAt,
+                                      date: new Date(task.updatedAt || task.createdAt).toLocaleDateString('en-IN'),
+                                    });
+                                    triggerToast(`📥 Downloaded Payout Voucher #WN-PAYOUT-WN-${task.id}.pdf`);
+                                  }}
+                                >
+                                  📄 Download Payout PDF Voucher
+                                </button>
+                              )}
+
+                              <button className="fd-action-btn" onClick={() => triggerToast('📅 Extension request details sent to QA Admin.')}>
+                                📅 Request Extension
+                              </button>
+                            </>
                           )}
-
-                          {task.status === 'midpoint_submitted' && (
-                            <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, padding: '6px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: 6, border: '1px solid #f59e0b' }}>
-                              ⏳ 50% Midpoint Under Client Review
-                            </span>
-                          )}
-
-                          {/* 100% Final Deliverables Trigger */}
-                          {['midpoint_approved', 'paid_75', 'revision_requested'].includes(task.status) && (
-                            <button
-                              className="fd-action-btn primary"
-                              style={{ background: '#10b981', borderColor: '#059669' }}
-                              onClick={() => setSubmittingTask(task)}
-                            >
-                              🚀 Deliver 100% Final Work →
-                            </button>
-                          )}
-
-                          {['submitted', 'qa_approved'].includes(task.status) && (
-                            <span style={{ fontSize: 12, color: '#818cf8', fontWeight: 600, padding: '6px 12px', background: 'rgba(129, 140, 248, 0.1)', borderRadius: 6, border: '1px solid #818cf8' }}>
-                              ⏳ Final Deliverables Under QA &amp; Client Review
-                            </span>
-                          )}
-
-                          {task.status === 'client_approved' && (
-                            <span style={{ fontSize: 12, color: '#34d399', fontWeight: 600, padding: '6px 12px', background: 'rgba(52, 211, 153, 0.1)', borderRadius: 6, border: '1px solid #34d399' }}>
-                              🛡️ Client Approved · Payout Regulated by Admin
-                            </span>
-                          )}
-
-                          {['completed', 'delivered'].includes(task.status) && (
-                            <button
-                              className="fd-action-btn"
-                              style={{ background: '#064e3b', color: '#34d399', borderColor: '#10b981', fontWeight: 'bold' }}
-                              onClick={() => {
-                                downloadFreelancerPayoutVoucherPDF({
-                                  orderId: task.id,
-                                  freelancerName: profile?.name || user?.name || 'Vetted Specialist',
-                                  freelancerEmail: profile?.email || user?.email || 'specialist@workonova.com',
-                                  serviceCategory: task.serviceCategory,
-                                  tier: task.tier || 'STANDARD',
-                                  payoutAmount: task.freelancerPayoutAmount || 10000,
-                                  payoutStatus: task.payoutStatus || 'payout_released',
-                                  payoutReleasedAt: task.payoutReleasedAt,
-                                  date: new Date(task.updatedAt || task.createdAt).toLocaleDateString('en-IN'),
-                                });
-                                triggerToast(`📥 Downloaded Payout Voucher #WN-PAYOUT-WN-${task.id}.pdf`);
-                              }}
-                            >
-                              📄 Download Payout PDF Voucher
-                            </button>
-                          )}
-
-                          <button className="fd-action-btn" onClick={() => triggerToast('📅 Extension request details sent to QA Admin.')}>
-                            📅 Request Extension
-                          </button>
                         </div>
                       </article>
                     );
@@ -1190,6 +1361,73 @@ export default function FreelancerDashboard() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DECLINE PROJECT OFFER MODAL */}
+      {declineModalTask && (
+        <div className="fd-modal-overlay" onClick={() => setDeclineModalTask(null)}>
+          <div className="fd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
+            <div className="fd-modal-header" style={{ borderBottom: '1px solid rgba(239, 68, 68, 0.25)' }}>
+              <h2 style={{ color: '#f87171' }}>✕ Decline Project Offer — #{declineModalTask.id}</h2>
+              <button className="fd-modal-close" onClick={() => setDeclineModalTask(null)}>×</button>
+            </div>
+            <div className="fd-modal-body">
+              <div style={{ background: '#182216', border: '1px solid #283a24', padding: '12px 14px', borderRadius: 8, marginBottom: 16 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: '#ffffff', marginBottom: 2 }}>{declineModalTask.serviceCategory}</div>
+                <div style={{ fontSize: 12, color: '#8da888' }}>
+                  Offered Payout: <b style={{ color: '#3ddc17' }}>₹{declineModalTask.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}</b> · Client: {getClientName(declineModalTask.id)}
+                </div>
+              </div>
+
+              <p style={{ fontSize: 12.5, color: '#cbd5e1', lineHeight: 1.5, marginBottom: 14 }}>
+                Please select your reason for declining. This task will immediately be returned to the Admin Assign Desk with <b>zero penalty</b> to your specialist rating.
+              </p>
+
+              <form id="declineForm" onSubmit={handleSubmitDecline}>
+                <div className="fd-form-row">
+                  <label className="fd-form-label">Primary Reason</label>
+                  <div className="fd-reason-chips">
+                    {DECLINE_REASONS.map(r => (
+                      <div
+                        key={r.id}
+                        className={`fd-reason-chip${declineReason === r.label ? ' selected' : ''}`}
+                        onClick={() => setDeclineReason(r.label)}
+                      >
+                        <span>{r.icon}</span>
+                        <span>{r.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="fd-form-row">
+                  <label className="fd-form-label">Additional Comments / Context for QA Team (Optional)</label>
+                  <textarea
+                    className="fd-form-input"
+                    rows={3}
+                    placeholder="e.g. Currently dedicated to another active project milestone until next Monday..."
+                    value={declineCustomNote}
+                    onChange={e => setDeclineCustomNote(e.target.value)}
+                  />
+                </div>
+              </form>
+            </div>
+            <div className="fd-modal-footer">
+              <button className="fd-btn-secondary" type="button" onClick={() => setDeclineModalTask(null)}>
+                Keep Offer
+              </button>
+              <button
+                className="fd-btn-primary"
+                form="declineForm"
+                type="submit"
+                style={{ background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)', borderColor: '#ef4444' }}
+                disabled={declineSubmitting}
+              >
+                {declineSubmitting ? 'Declining… ⏳' : '✕ Confirm & Release Project'}
+              </button>
             </div>
           </div>
         </div>

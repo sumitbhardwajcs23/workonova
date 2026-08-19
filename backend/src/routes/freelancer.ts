@@ -30,6 +30,11 @@ freelancerApp.get('/tasks', async (c) => {
       freelancerSubmissionLink: orders.freelancerSubmissionLink, // Freelancer's final delivered assets link
       qaApprovedLink: orders.qaApprovedLink,
       status: orders.status,
+      assignmentStatus: orders.assignmentStatus,
+      declineReason: orders.declineReason,
+      declinedBy: orders.declinedBy,
+      declinedAt: orders.declinedAt,
+      acceptedAt: orders.acceptedAt,
       milestoneStage: orders.milestoneStage,
       amountPaid: orders.amountPaid,
       freelancerPayoutAmount: orders.freelancerPayoutAmount,
@@ -44,6 +49,105 @@ freelancerApp.get('/tasks', async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
+});
+
+// ── POST Accept Assigned Project Offer ──
+freelancerApp.post('/tasks/:id/accept', async (c) => {
+  try {
+    const user = c.get('user');
+    const orderId = Number(c.req.param('id'));
+
+    const taskRecord = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.freelancerId, user.id))).limit(1);
+    if (taskRecord.length === 0) return c.json({ error: 'Task not found or not assigned to you.' }, 404);
+
+    const nowIso = new Date().toISOString();
+    const updated = await db.update(orders).set({
+      assignmentStatus: 'accepted',
+      acceptedAt: nowIso,
+      status: 'assigned',
+      updatedAt: nowIso,
+    }).where(and(eq(orders.id, orderId), eq(orders.freelancerId, user.id))).returning();
+
+    // Insert system message to project discussion
+    try {
+      await db.insert(messages).values({
+        orderId,
+        senderId: user.id,
+        senderRole: 'freelancer',
+        messageText: `[SYSTEM] 🎯 Specialist ${user.name || 'Specialist'} has officially ACCEPTED Task #${orderId}. Production is active!`,
+      });
+    } catch (msgErr) {
+      console.error('Failed to log acceptance system message:', msgErr);
+    }
+
+    return c.json({
+      success: true,
+      message: 'Project assignment accepted! Production is now active.',
+      data: updated[0],
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ── POST Decline/Reject Assigned Project Offer ──
+freelancerApp.post('/tasks/:id/reject', async (c) => {
+  try {
+    const user = c.get('user');
+    const orderId = Number(c.req.param('id'));
+    const body = await c.req.json().catch(() => ({}));
+    const reasonOption = sanitise(body.reason || '');
+    const customNote = sanitise(body.customNote || '');
+    const fullReason = [reasonOption, customNote].filter(Boolean).join(' — ') || 'Schedule/Bandwidth Constraints';
+
+    const taskRecord = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.freelancerId, user.id))).limit(1);
+    if (taskRecord.length === 0) return c.json({ error: 'Task not found or not assigned to you.' }, 404);
+
+    const prevOrder = taskRecord[0];
+    const nowIso = new Date().toISOString();
+
+    // Return status to paid milestone state so it displays in Admin Assign Desk
+    const returnStatus = (prevOrder.amountPaid && prevOrder.amountPaid > 0) ? 'paid_50' : 'paid';
+
+    await db.update(orders).set({
+      freelancerId: null,
+      freelancerPayoutAmount: 0,
+      assignmentStatus: 'declined',
+      declineReason: fullReason,
+      declinedBy: user.name || 'Specialist',
+      declinedAt: nowIso,
+      status: returnStatus,
+      updatedAt: nowIso,
+    }).where(eq(orders.id, orderId));
+
+    // Insert system audit message
+    try {
+      await db.insert(messages).values({
+        orderId,
+        senderId: user.id,
+        senderRole: 'freelancer',
+        messageText: `[SYSTEM] ⚠️ Specialist ${user.name || 'Specialist'} declined the assignment (Reason: "${fullReason}"). Order returned to Assign Desk for reassignment.`,
+      });
+    } catch (msgErr) {
+      console.error('Failed to log decline system message:', msgErr);
+    }
+
+    return c.json({
+      success: true,
+      message: 'Project assignment declined. The order has been returned to the Admin desk.',
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// Alias for decline
+freelancerApp.post('/tasks/:id/decline', async (c) => {
+  return freelancerApp.fetch(new Request(c.req.url.replace('/decline', '/reject'), {
+    method: 'POST',
+    headers: c.req.raw.headers,
+    body: await c.req.raw.clone().text(),
+  }));
 });
 
 // ── POST Submit 50% Midpoint Work ──

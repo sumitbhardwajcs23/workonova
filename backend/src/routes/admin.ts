@@ -185,6 +185,11 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
     const updated = await db.update(orders).set({
       freelancerId,
       freelancerPayoutAmount: payoutAmount,
+      assignmentStatus: 'pending_acceptance',
+      declineReason: null,
+      declinedBy: null,
+      declinedAt: null,
+      acceptedAt: null,
       status: 'assigned',
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
@@ -199,7 +204,7 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
         orderId,
         senderId: 0,
         senderRole: 'admin',
-        messageText: `[SYSTEM] Task assigned to specialist ${flRecord[0].name}. Production has officially started.`
+        messageText: `[SYSTEM] Task offered to specialist ${flRecord[0].name} (Payout: ₹${payoutAmount.toLocaleString('en-IN')}). Awaiting specialist review and acceptance.`
       });
     } catch (msgErr) {
       console.error('Failed to insert assignment audit message:', msgErr);
@@ -211,8 +216,8 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
         flRecord[0].email,
         flRecord[0].name,
         orderId,
-        'New Task Assignment Available',
-        `You have been assigned to Task #${orderId} (${updated[0].serviceCategory}). Log in to your freelancer portal to view task briefs and submit deliverables.`
+        'New Project Offer Available — Review & Accept',
+        `You have been offered Project #${orderId} (${updated[0].serviceCategory}) with an allocated payout of ₹${payoutAmount.toLocaleString('en-IN')}. Log in to your specialist portal to review the client brief and accept the assignment.`
       );
     } catch (emailErr: any) {
       console.error(`❌ Failed to send order assignment email to freelancer ${flRecord[0].email}:`, emailErr?.message || emailErr);

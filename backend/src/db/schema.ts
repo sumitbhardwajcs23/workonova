@@ -86,6 +86,11 @@ export const orders = pgTable('orders', {
   qaApprovedLink: text('qa_approved_link'), // QA-vetted final deliverables link
   freelancerId: integer('freelancer_id'),           // References freelancers.id
   freelancerPayoutAmount: integer('freelancer_payout_amount'),
+  assignmentStatus: text('assignment_status').notNull().default('accepted'), // 'pending_acceptance' | 'accepted' | 'declined'
+  declineReason: text('decline_reason'),           // Reason recorded if specialist declines offer
+  declinedBy: text('declined_by'),                 // Specialist name who declined
+  declinedAt: text('declined_at'),                 // Timestamp when declined
+  acceptedAt: text('accepted_at'),                 // Timestamp when accepted
   payoutStatus: text('payout_status').notNull().default('pending_admin_approval'), // 'pending_admin_approval' | 'payout_approved' | 'payout_released' | 'held'
   payoutReleasedAt: text('payout_released_at'),
   paymentId: text('payment_id'),

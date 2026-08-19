@@ -677,6 +677,215 @@
   font-family: inherit;
 }
 
+/* ── ASSIGNMENT OFFER BANNER & ACCEPT/REJECT WORKFLOW ── */
+.fd-offer-banner {
+  background: linear-gradient(135deg, #0d2818 0%, #111a10 50%, #162a14 100%);
+  border: 1.5px solid #56c41a;
+  box-shadow: 0 4px 20px rgba(86, 196, 26, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  position: relative;
+  overflow: hidden;
+  animation: offerGlow 3s ease-in-out infinite alternate;
+}
+
+@keyframes offerGlow {
+  0% { border-color: #56c41a; box-shadow: 0 4px 16px rgba(86, 196, 26, 0.15); }
+  100% { border-color: #3ddc17; box-shadow: 0 4px 24px rgba(61, 220, 23, 0.28); }
+}
+
+.fd-offer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.fd-offer-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(86, 196, 26, 0.18);
+  border: 1px solid #56c41a;
+  color: #56c41a;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.fd-pulse-dot {
+  width: 8px;
+  height: 8px;
+  background: #56c41a;
+  border-radius: 50%;
+  animation: pulseDot 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulseDot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(1.3); }
+}
+
+.fd-offer-payout {
+  text-align: right;
+}
+
+.fd-offer-payout small {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #8da888;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.fd-offer-payout b {
+  font-size: 20px;
+  color: #3ddc17;
+  font-weight: 800;
+  font-family: inherit;
+  letter-spacing: -0.5px;
+}
+
+.fd-offer-text {
+  font-size: 12.5px;
+  color: #c4d7c0;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.fd-offer-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.fd-btn-accept {
+  background: linear-gradient(135deg, #56c41a 0%, #389e0d 100%);
+  color: #ffffff;
+  border: 1px solid #73d13d;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 8px rgba(86, 196, 26, 0.3);
+}
+
+.fd-btn-accept:hover:not(:disabled) {
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 14px rgba(86, 196, 26, 0.45);
+  background: linear-gradient(135deg, #73d13d 0%, #56c41a 100%);
+}
+
+.fd-btn-accept:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.fd-btn-accept:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.fd-btn-decline {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.2s ease;
+}
+
+.fd-btn-decline:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.22);
+  border-color: #ef4444;
+  color: #fca5a5;
+  transform: translateY(-1px);
+}
+
+.fd-btn-decline:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Badge Offer Pulse */
+.fd-nav-badge.offer-pulse {
+  background: #3ddc17;
+  color: #0f1a0d;
+  font-weight: 800;
+  animation: badgePulse 1.8s infinite;
+}
+
+@keyframes badgePulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(61, 220, 23, 0.7); }
+  50% { transform: scale(1.08); box-shadow: 0 0 0 6px rgba(61, 220, 23, 0); }
+}
+
+/* Decline Modal Specifics */
+.fd-reason-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.fd-reason-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #182216;
+  border: 1px solid #283a24;
+  color: #d1ded0;
+  cursor: pointer;
+  font-size: 12.5px;
+  transition: all 0.15s ease;
+}
+
+.fd-reason-chip:hover {
+  border-color: #56c41a;
+  background: #1f2f1d;
+}
+
+.fd-reason-chip.selected {
+  background: rgba(86, 196, 26, 0.15);
+  border-color: #56c41a;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.fd-accepted-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(86, 196, 26, 0.14);
+  color: #56c41a;
+  border: 1px solid rgba(86, 196, 26, 0.35);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

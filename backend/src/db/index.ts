@@ -9,5 +9,5 @@ if (!connectionString) {
   console.warn("⚠️ DATABASE_URL environment variable is not defined. PostgreSQL queries will fail until set.");
 }
 
-const sql = neon(connectionString || '');
+export const sql = neon(connectionString || '');
 export const db = drizzle(sql, { schema });
