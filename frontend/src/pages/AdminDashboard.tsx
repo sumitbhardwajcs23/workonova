@@ -3107,107 +3107,149 @@ export default function AdminDashboard() {
 
       {/* MESSAGES RELAY & CONTROL STATION MODAL */}
       {relayOrder && (() => {
-        // Filter out system audit logs to keep chat clean and focused on human communication
-        const humanMessages = chatMessages.filter(m => m.senderId !== 0 && m.senderRole !== 'system');
-        const clientMsgs = humanMessages.filter(m => m.senderRole === 'client' || m.targetAudience === 'client_only' || m.targetAudience === 'all');
-        const flMsgs = humanMessages.filter(m => m.senderRole === 'freelancer' || m.targetAudience === 'freelancer_only' || m.targetAudience === 'all');
+        const clientMsgs = chatMessages.filter(m => m.senderRole === 'client' || m.targetAudience === 'client_only' || m.targetAudience === 'all' || !m.targetAudience);
+        const flMsgs = chatMessages.filter(m => m.senderRole === 'freelancer' || m.targetAudience === 'freelancer_only' || m.targetAudience === 'all' || !m.targetAudience);
+        const internalMsgs = chatMessages.filter(m => m.targetAudience === 'internal' || m.senderRole === 'system');
 
-        let filteredList = humanMessages;
+        let filteredList = chatMessages;
         if (chatChannelFilter === 'client') filteredList = clientMsgs;
         else if (chatChannelFilter === 'freelancer') filteredList = flMsgs;
+        else if (chatChannelFilter === 'internal') filteredList = internalMsgs;
 
         return (
           <div className="ad-modal-overlay" onClick={() => setRelayOrder(null)}>
-            <div className="ad-modal" style={{ maxWidth: 740, width: '92%' }} onClick={e => e.stopPropagation()}>
-              <div className="ad-modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 12 }}>
+            <div className="ad-modal" style={{ maxWidth: 780, width: '94%', borderRadius: 14, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
+              <div className="ad-modal-header" style={{ borderBottom: '1px solid #e2e8f0', background: '#0f172a', color: '#ffffff', padding: '16px 20px' }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <h2 style={{ margin: 0, fontSize: 18 }}>💬 Relay &amp; Communication Command — #WN-{relayOrder.id}</h2>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, background: '#f0fdf4', color: '#16a34a', border: '1px solid #bbf7d0', padding: '2px 8px', borderRadius: 12 }}>
-                      🛡️ Financial Isolation Active
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <h2 style={{ margin: 0, fontSize: 18, color: '#ffffff' }}>💬 Communication Command Center — #WN-{relayOrder.id}</h2>
+                    <span style={{ fontSize: 11, fontWeight: 700, background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid #22c55e', padding: '2px 10px', borderRadius: 12 }}>
+                      🛡️ Financial Privacy Shield Active
                     </span>
                   </div>
-                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                    <span>Client: <b style={{ color: '#0f172a' }}>{relayOrder.client?.name || `Client #${relayOrder.clientId}`}</b></span>
-                    <span>Specialist: <b style={{ color: '#0f172a' }}>{relayOrder.freelancer?.name || (relayOrder.freelancerId ? `Specialist #${relayOrder.freelancerId}` : 'Unassigned')}</b></span>
-                    <span>Service: <b style={{ color: '#0f172a' }}>{relayOrder.serviceCategory}</b></span>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                    <span>Client: <b style={{ color: '#f8fafc' }}>{relayOrder.client?.name || `Client #${relayOrder.clientId}`}</b></span>
+                    <span>Specialist: <b style={{ color: '#f8fafc' }}>{relayOrder.freelancer?.name || (relayOrder.freelancerId ? `Specialist #${relayOrder.freelancerId}` : 'Unassigned')}</b></span>
+                    <span>Service: <b style={{ color: '#f8fafc' }}>{relayOrder.serviceCategory}</b></span>
                   </div>
                 </div>
-                <button className="ad-modal-close" onClick={() => setRelayOrder(null)}>×</button>
+                <button className="ad-modal-close" style={{ color: '#94a3b8' }} onClick={() => setRelayOrder(null)}>×</button>
               </div>
 
-              {/* Privacy Notice Alert */}
-              <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '8px 16px', fontSize: 11.5, color: '#475569', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>🔒 <b>Client-Safe Isolation:</b> Specialist payout amounts (₹{relayOrder.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}) and internal notes are automatically hidden from the client view.</span>
+              {/* Privacy Notice Banner */}
+              <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '9px 18px', fontSize: 12, color: '#334155', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>🔒 <b>Client Payment Isolation:</b> Client sees only their invoice. Specialist payout (₹{relayOrder.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}) and internal notes are isolated.</span>
               </div>
 
               {/* Channel View Filter Tabs */}
-              <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#ffffff', padding: '6px 14px', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', background: '#ffffff', padding: '8px 18px', gap: 8, flexWrap: 'wrap' }}>
                 <button
                   type="button"
-                  onClick={() => setChatChannelFilter('all')}
+                  onClick={() => {
+                    setChatChannelFilter('all');
+                    setChatAudience('all');
+                  }}
                   style={{
-                    padding: '5px 12px',
-                    borderRadius: 6,
+                    padding: '6px 14px',
+                    borderRadius: 7,
                     border: 'none',
                     background: chatChannelFilter === 'all' ? '#0f172a' : '#f1f5f9',
                     color: chatChannelFilter === 'all' ? '#ffffff' : '#475569',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer'
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
                   }}
                 >
-                  🌐 All Messages ({humanMessages.length})
+                  🌐 All Messages ({chatMessages.length})
                 </button>
                 <button
                   type="button"
-                  onClick={() => setChatChannelFilter('client')}
+                  onClick={() => {
+                    setChatChannelFilter('client');
+                    setChatAudience('client_only');
+                  }}
                   style={{
-                    padding: '5px 12px',
-                    borderRadius: 6,
+                    padding: '6px 14px',
+                    borderRadius: 7,
                     border: 'none',
                     background: chatChannelFilter === 'client' ? '#0284c7' : '#f1f5f9',
                     color: chatChannelFilter === 'client' ? '#ffffff' : '#475569',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer'
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
                   }}
                 >
                   🏢 Client Channel ({clientMsgs.length})
                 </button>
                 <button
                   type="button"
-                  onClick={() => setChatChannelFilter('freelancer')}
+                  onClick={() => {
+                    setChatChannelFilter('freelancer');
+                    setChatAudience('freelancer_only');
+                  }}
                   style={{
-                    padding: '5px 12px',
-                    borderRadius: 6,
+                    padding: '6px 14px',
+                    borderRadius: 7,
                     border: 'none',
                     background: chatChannelFilter === 'freelancer' ? '#16a34a' : '#f1f5f9',
                     color: chatChannelFilter === 'freelancer' ? '#ffffff' : '#475569',
-                    fontSize: 12,
-                    fontWeight: 600,
-                    cursor: 'pointer'
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
                   }}
                 >
                   🛠️ Specialist Channel ({flMsgs.length})
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setChatChannelFilter('internal');
+                    setChatAudience('internal');
+                  }}
+                  style={{
+                    padding: '6px 14px',
+                    borderRadius: 7,
+                    border: 'none',
+                    background: chatChannelFilter === 'internal' ? '#d97706' : '#f1f5f9',
+                    color: chatChannelFilter === 'internal' ? '#ffffff' : '#475569',
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}
+                >
+                  🔒 Internal QA Notes ({internalMsgs.length})
+                </button>
               </div>
 
-              <div className="ad-modal-body" style={{ maxHeight: '50vh', overflowY: 'auto', padding: '16px' }}>
+              {/* Message List */}
+              <div className="ad-modal-body" style={{ maxHeight: '48vh', overflowY: 'auto', padding: '18px', background: '#f8fafc' }}>
                 <div className="ad-chat-list">
                   {filteredList.length === 0 ? (
-                    <p style={{ textAlign: 'center', color: '#94a3b8', padding: '28px 0', fontSize: 13 }}>
-                      No messages in this channel filter.
-                    </p>
+                    <div style={{ textAlign: 'center', padding: '36px 16px', color: '#94a3b8' }}>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 600 }}>No messages in this channel view yet.</p>
+                      <p style={{ margin: '6px 0 0', fontSize: 12 }}>Use the transmitter below to send a message to this channel.</p>
+                    </div>
                   ) : (
                     filteredList.map(msg => {
-                      const isSystem = msg.senderId === 0;
+                      const isSystem = msg.senderId === 0 || msg.senderRole === 'system';
                       const isMe = msg.senderRole === 'admin';
                       const isClient = msg.senderRole === 'client';
                       const isFreelancer = msg.senderRole === 'freelancer';
 
                       return (
-                        <div key={msg.id} className={`ad-chat-msg${isMe ? ' me' : ''}`} style={{ marginBottom: 12 }}>
+                        <div key={msg.id} className={`ad-chat-msg${isMe ? ' me' : ''}`} style={{ marginBottom: 14 }}>
                           <div className={`ad-chat-av${isMe ? ' me' : ''}`} style={
                             isClient ? { background: '#0284c7' } :
                             isFreelancer ? { background: '#16a34a' } :
@@ -3215,38 +3257,39 @@ export default function AdminDashboard() {
                           }>
                             {isMe ? initials : (isClient ? 'C' : (isFreelancer ? 'S' : '⚙️'))}
                           </div>
-                          <div style={{ maxWidth: '85%' }}>
+                          <div style={{ maxWidth: '82%' }}>
                             <div className="ad-chat-bubble" style={
                               msg.targetAudience === 'internal' ? { background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' } :
-                              msg.targetAudience === 'freelancer_only' ? { borderLeft: '3px solid #16a34a' } :
-                              msg.targetAudience === 'client_only' ? { borderLeft: '3px solid #0284c7' } : {}
+                              msg.targetAudience === 'freelancer_only' ? { background: '#ffffff', color: '#0f172a', borderLeft: '4px solid #16a34a', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' } :
+                              msg.targetAudience === 'client_only' ? { background: '#ffffff', color: '#0f172a', borderLeft: '4px solid #0284c7', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' } :
+                              { background: '#ffffff', color: '#0f172a', borderLeft: '4px solid #64748b', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }
                             }>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' }}>
                                 {msg.targetAudience === 'client_only' && (
-                                  <span style={{ fontSize: 9.5, fontWeight: 700, background: '#e0f2fe', color: '#0369a1', padding: '1px 5px', borderRadius: 4 }}>
-                                    🏢 Client Channel
+                                  <span style={{ fontSize: 10, fontWeight: 700, background: '#e0f2fe', color: '#0369a1', padding: '2px 6px', borderRadius: 4 }}>
+                                    🏢 Client Channel Only
                                   </span>
                                 )}
                                 {msg.targetAudience === 'freelancer_only' && (
-                                  <span style={{ fontSize: 9.5, fontWeight: 700, background: '#dcfce7', color: '#15803d', padding: '1px 5px', borderRadius: 4 }}>
-                                    🛠️ Specialist Channel
+                                  <span style={{ fontSize: 10, fontWeight: 700, background: '#dcfce7', color: '#15803d', padding: '2px 6px', borderRadius: 4 }}>
+                                    🛠️ Specialist Channel Only
                                   </span>
                                 )}
                                 {msg.targetAudience === 'internal' && (
-                                  <span style={{ fontSize: 9.5, fontWeight: 700, background: '#fee2e2', color: '#b91c1c', padding: '1px 5px', borderRadius: 4 }}>
-                                    🔒 Admin Private Note
+                                  <span style={{ fontSize: 10, fontWeight: 700, background: '#fee2e2', color: '#b91c1c', padding: '2px 6px', borderRadius: 4 }}>
+                                    🔒 Admin QA Internal Note
                                   </span>
                                 )}
                                 {(!msg.targetAudience || msg.targetAudience === 'all') && !isSystem && (
-                                  <span style={{ fontSize: 9.5, fontWeight: 700, background: '#f1f5f9', color: '#475569', padding: '1px 5px', borderRadius: 4 }}>
-                                    📢 Broadcast
+                                  <span style={{ fontSize: 10, fontWeight: 700, background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: 4 }}>
+                                    📢 Broadcast (Visible to All)
                                   </span>
                                 )}
                               </div>
-                              {msg.messageText}
+                              <div style={{ fontSize: 13.5, lineHeight: 1.45 }}>{msg.messageText}</div>
                             </div>
-                            <div className="ad-chat-time">
-                              {`${msg.senderRole.toUpperCase()}`} · {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            <div className="ad-chat-time" style={{ marginTop: 3, fontSize: 11, color: '#64748b' }}>
+                              {isSystem ? '⚙️ SYSTEM' : `${msg.senderRole.toUpperCase()}`} · {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           </div>
                         </div>
@@ -3257,75 +3300,123 @@ export default function AdminDashboard() {
               </div>
 
               {/* Message Transmitter & Audience Controller */}
-              <div style={{ background: '#f8fafc', borderTop: '1px solid #e2e8f0', padding: '12px 16px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase' }}>
-                    📡 Transmit Message To:
-                  </span>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ background: '#ffffff', borderTop: '1px solid #e2e8f0', padding: '14px 20px' }}>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                    <span style={{ fontSize: 11.5, fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                      📡 Transmit Message To:
+                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 600, color: '#64748b' }}>
+                      {chatAudience === 'all' && '📢 Message will be delivered to Both Client & Specialist'}
+                      {chatAudience === 'client_only' && '🏢 Message will be delivered to Client ONLY'}
+                      {chatAudience === 'freelancer_only' && '🛠️ Message will be delivered to Specialist ONLY'}
+                      {chatAudience === 'internal' && '🔒 Saved as Private QA note (Hidden from everyone)'}
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 8 }}>
+                    {/* Broadcast Pill */}
                     <button
                       type="button"
-                      onClick={() => setChatAudience('all')}
+                      onClick={() => {
+                        setChatAudience('all');
+                        if (chatChannelFilter !== 'all') setChatChannelFilter('all');
+                      }}
                       style={{
-                        padding: '3px 10px',
-                        fontSize: 11.5,
-                        borderRadius: 6,
-                        border: chatAudience === 'all' ? '1.5px solid #0f172a' : '1px solid #cbd5e1',
+                        padding: '7px 10px',
+                        fontSize: 12,
+                        borderRadius: 8,
+                        border: chatAudience === 'all' ? '2px solid #0f172a' : '1px solid #cbd5e1',
                         background: chatAudience === 'all' ? '#0f172a' : '#ffffff',
                         color: chatAudience === 'all' ? '#ffffff' : '#334155',
-                        fontWeight: chatAudience === 'all' ? 700 : 500,
-                        cursor: 'pointer'
+                        fontWeight: chatAudience === 'all' ? 800 : 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        boxShadow: chatAudience === 'all' ? '0 2px 4px rgba(15,23,42,0.2)' : 'none'
                       }}
                     >
-                      📢 Broadcast (Both)
+                      📢 Broadcast (Both) {chatAudience === 'all' && '✓'}
                     </button>
+
+                    {/* Client Only Pill */}
                     <button
                       type="button"
-                      onClick={() => setChatAudience('client_only')}
+                      onClick={() => {
+                        setChatAudience('client_only');
+                        if (chatChannelFilter !== 'client') setChatChannelFilter('client');
+                      }}
                       style={{
-                        padding: '3px 10px',
-                        fontSize: 11.5,
-                        borderRadius: 6,
-                        border: chatAudience === 'client_only' ? '1.5px solid #0284c7' : '1px solid #cbd5e1',
+                        padding: '7px 10px',
+                        fontSize: 12,
+                        borderRadius: 8,
+                        border: chatAudience === 'client_only' ? '2px solid #0284c7' : '1px solid #cbd5e1',
                         background: chatAudience === 'client_only' ? '#0284c7' : '#ffffff',
                         color: chatAudience === 'client_only' ? '#ffffff' : '#334155',
-                        fontWeight: chatAudience === 'client_only' ? 700 : 500,
-                        cursor: 'pointer'
+                        fontWeight: chatAudience === 'client_only' ? 800 : 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        boxShadow: chatAudience === 'client_only' ? '0 2px 4px rgba(2,132,199,0.25)' : 'none'
                       }}
                     >
-                      🏢 Client Only
+                      🏢 Client Only {chatAudience === 'client_only' && '✓'}
                     </button>
+
+                    {/* Specialist Only Pill */}
                     <button
                       type="button"
-                      onClick={() => setChatAudience('freelancer_only')}
+                      onClick={() => {
+                        setChatAudience('freelancer_only');
+                        if (chatChannelFilter !== 'freelancer') setChatChannelFilter('freelancer');
+                      }}
                       style={{
-                        padding: '3px 10px',
-                        fontSize: 11.5,
-                        borderRadius: 6,
-                        border: chatAudience === 'freelancer_only' ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                        padding: '7px 10px',
+                        fontSize: 12,
+                        borderRadius: 8,
+                        border: chatAudience === 'freelancer_only' ? '2px solid #16a34a' : '1px solid #cbd5e1',
                         background: chatAudience === 'freelancer_only' ? '#16a34a' : '#ffffff',
                         color: chatAudience === 'freelancer_only' ? '#ffffff' : '#334155',
-                        fontWeight: chatAudience === 'freelancer_only' ? 700 : 500,
-                        cursor: 'pointer'
+                        fontWeight: chatAudience === 'freelancer_only' ? 800 : 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        boxShadow: chatAudience === 'freelancer_only' ? '0 2px 4px rgba(22,163,74,0.25)' : 'none'
                       }}
                     >
-                      🛠️ Specialist Only
+                      🛠️ Specialist Only {chatAudience === 'freelancer_only' && '✓'}
                     </button>
+
+                    {/* Internal QA Note Pill */}
                     <button
                       type="button"
-                      onClick={() => setChatAudience('internal')}
+                      onClick={() => {
+                        setChatAudience('internal');
+                        if (chatChannelFilter !== 'internal') setChatChannelFilter('internal');
+                      }}
                       style={{
-                        padding: '3px 10px',
-                        fontSize: 11.5,
-                        borderRadius: 6,
-                        border: chatAudience === 'internal' ? '1.5px solid #d97706' : '1px solid #cbd5e1',
+                        padding: '7px 10px',
+                        fontSize: 12,
+                        borderRadius: 8,
+                        border: chatAudience === 'internal' ? '2px solid #d97706' : '1px solid #cbd5e1',
                         background: chatAudience === 'internal' ? '#d97706' : '#ffffff',
                         color: chatAudience === 'internal' ? '#ffffff' : '#334155',
-                        fontWeight: chatAudience === 'internal' ? 700 : 500,
-                        cursor: 'pointer'
+                        fontWeight: chatAudience === 'internal' ? 800 : 600,
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: 6,
+                        boxShadow: chatAudience === 'internal' ? '0 2px 4px rgba(217,119,6,0.25)' : 'none'
                       }}
                     >
-                      🔒 Internal QA Note
+                      🔒 Internal QA Note {chatAudience === 'internal' && '✓'}
                     </button>
                   </div>
                 </div>
@@ -3336,15 +3427,26 @@ export default function AdminDashboard() {
                       className="ad-chat-input"
                       required
                       placeholder={
-                        chatAudience === 'client_only' ? 'Type message visible ONLY to client...' :
-                        chatAudience === 'freelancer_only' ? 'Type message visible ONLY to specialist...' :
-                        chatAudience === 'internal' ? 'Type private QA internal note...' :
-                        'Type broadcast message to all project members...'
+                        chatAudience === 'client_only' ? 'Type message visible ONLY to Client (Specialist blocked)...' :
+                        chatAudience === 'freelancer_only' ? 'Type message visible ONLY to Specialist (Client blocked)...' :
+                        chatAudience === 'internal' ? 'Type private QA note (Both Client & Specialist blocked)...' :
+                        'Type broadcast message visible to both Client and Specialist...'
                       }
                       value={relayText}
                       onChange={e => setRelayText(e.target.value)}
                     />
-                    <button type="submit" className="ad-chat-send" style={{ minWidth: 80 }}>
+                    <button
+                      type="submit"
+                      className="ad-chat-send"
+                      style={{
+                        minWidth: 90,
+                        background:
+                          chatAudience === 'client_only' ? '#0284c7' :
+                          chatAudience === 'freelancer_only' ? '#16a34a' :
+                          chatAudience === 'internal' ? '#d97706' :
+                          '#0f172a'
+                      }}
+                    >
                       Send →
                     </button>
                   </div>
