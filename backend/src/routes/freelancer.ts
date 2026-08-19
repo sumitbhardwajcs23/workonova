@@ -228,14 +228,17 @@ freelancerApp.post('/tasks/:id/submit', async (c) => {
   }
 });
 
-// ── GET Task Messages ──
+// ── GET Task Messages (Filtered for specialist & shared broadcast) ──
 freelancerApp.get('/tasks/:id/messages', async (c) => {
   try {
     const user = c.get('user');
     const orderId = Number(c.req.param('id'));
     const taskRecord = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.freelancerId, user.id))).limit(1);
     if (taskRecord.length === 0) return c.json({ error: 'Task not found.' }, 404);
-    return c.json({ data: await db.select().from(messages).where(eq(messages.orderId, orderId)) });
+    
+    const allMessages = await db.select().from(messages).where(eq(messages.orderId, orderId));
+    const flMessages = allMessages.filter(msg => msg.targetAudience !== 'client_only' && msg.targetAudience !== 'internal');
+    return c.json({ data: flMessages });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -251,7 +254,13 @@ freelancerApp.post('/tasks/:id/messages', async (c) => {
     if (!messageText) return c.json({ error: 'Message text is required.' }, 400);
     const taskRecord = await db.select().from(orders).where(and(eq(orders.id, orderId), eq(orders.freelancerId, user.id))).limit(1);
     if (taskRecord.length === 0) return c.json({ error: 'Task not found.' }, 404);
-    const newMessage = await db.insert(messages).values({ orderId, senderId: user.id, senderRole: 'freelancer', messageText }).returning();
+    const newMessage = await db.insert(messages).values({
+      orderId,
+      senderId: user.id,
+      senderRole: 'freelancer',
+      targetAudience: 'all',
+      messageText,
+    }).returning();
     return c.json({ data: newMessage[0] }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);

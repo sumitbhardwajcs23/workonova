@@ -34,12 +34,28 @@ function isValidSubmissionLink(url: string): boolean {
   }
 }
 
+// ── Helper to strip private freelancer payouts and admin internal data from client ──
+function sanitizeOrderForClient(order: any) {
+  if (!order) return order;
+  const {
+    freelancerPayoutAmount,
+    payoutStatus,
+    payoutReleasedAt,
+    declineReason,
+    declinedBy,
+    declinedAt,
+    acceptedAt,
+    ...safeOrder
+  } = order;
+  return safeOrder;
+}
+
 // ── GET Orders ──
 clientApp.get('/orders', async (c) => {
   try {
     const user = c.get('user');
     const clientOrders = await db.select().from(orders).where(eq(orders.clientId, user.id));
-    return c.json({ data: clientOrders });
+    return c.json({ data: clientOrders.map(sanitizeOrderForClient) });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -70,7 +86,7 @@ clientApp.post('/orders', async (c) => {
       amountPaid: 0,
     }).returning();
 
-    return c.json({ data: newOrder[0] }, 201);
+    return c.json({ data: sanitizeOrderForClient(newOrder[0]) }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -121,13 +137,13 @@ clientApp.post('/orders/:id/submit', async (c) => {
     );
     if (!sentOrderEmail) console.error(`❌ Failed to send order submission email to client ${user.email}`);
 
-    return c.json({ data: updated[0] });
+    return c.json({ data: sanitizeOrderForClient(updated[0]) });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
 });
 
-// ── GET Order Messages ──
+// ── GET Order Messages (Client safe: excludes freelancer payouts & internal notes) ──
 clientApp.get('/orders/:id/messages', async (c) => {
   try {
     const user = c.get('user');
@@ -140,7 +156,26 @@ clientApp.get('/orders/:id/messages', async (c) => {
     if (orderRecord.length === 0) return c.json({ error: 'Order not found.' }, 404);
 
     const orderMessages = await db.select().from(messages).where(eq(messages.orderId, orderId));
-    return c.json({ data: orderMessages });
+    
+    // Client can only view messages marked for 'all' or 'client_only'
+    const clientSafeMessages = orderMessages.filter(msg => {
+      if (msg.targetAudience === 'freelancer_only' || msg.targetAudience === 'internal') {
+        return false;
+      }
+      // Strict redaction of internal specialist payout figures
+      const lower = (msg.messageText || '').toLowerCase();
+      if (
+        lower.includes('specialist payout') ||
+        lower.includes('freelancer payout') ||
+        lower.includes('payout released for task') ||
+        lower.includes('adjusted specialist payout')
+      ) {
+        return false;
+      }
+      return true;
+    });
+
+    return c.json({ data: clientSafeMessages });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
@@ -166,6 +201,7 @@ clientApp.post('/orders/:id/messages', async (c) => {
       orderId,
       senderId: user.id,
       senderRole: 'client',
+      targetAudience: 'all',
       messageText,
     }).returning();
 

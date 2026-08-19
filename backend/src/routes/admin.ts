@@ -471,6 +471,7 @@ adminApp.put('/orders/:id/payout-amount', roleGuard(['admin']), async (c) => {
       orderId,
       senderId: 0,
       senderRole: 'admin',
+      targetAudience: 'freelancer_only',
       messageText: `[SYSTEM] ⚙️ Admin adjusted specialist payout to ₹${payoutAmount.toLocaleString('en-IN')}.`,
     });
 
@@ -508,6 +509,7 @@ adminApp.post('/orders/:id/approve-payout', roleGuard(['admin']), async (c) => {
       orderId,
       senderId: 0,
       senderRole: 'admin',
+      targetAudience: 'freelancer_only',
       messageText: `[SYSTEM] 🛡️ Admin verified and APPROVED specialist payout of ₹${(updated[0].freelancerPayoutAmount || 0).toLocaleString('en-IN')}. Scheduled for disbursement.`,
     });
 
@@ -548,11 +550,12 @@ adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
 
-    // Log in discussion
+    // Log in discussion with freelancer_only targetAudience to keep private from client
     await db.insert(messages).values({
       orderId,
       senderId: 0,
       senderRole: 'admin',
+      targetAudience: 'freelancer_only',
       messageText: `[SYSTEM] 💰 Admin approved and disbursed ₹${finalPayoutAmount.toLocaleString('en-IN')} milestone payout to specialist. Project complete!`,
     });
 
@@ -579,7 +582,7 @@ adminApp.post('/orders/:id/release-payout', roleGuard(['admin']), async (c) => {
   }
 });
 
-// ── POST Release Payout ──
+// ── POST Release Payout (Legacy fallback) ──
 adminApp.post('/orders/:id/payout', roleGuard(['admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
@@ -588,7 +591,13 @@ adminApp.post('/orders/:id/payout', roleGuard(['admin']), async (c) => {
 
     const updated = await db.update(orders).set({ status: 'delivered', updatedAt: new Date().toISOString() }).where(eq(orders.id, orderId)).returning();
 
-    await db.insert(messages).values({ orderId, senderId: 0, senderRole: 'admin', messageText: `[SYSTEM] Payout released. Freelancer payout: ₹${updated[0].freelancerPayoutAmount?.toLocaleString() || 0}` });
+    await db.insert(messages).values({
+      orderId,
+      senderId: 0,
+      senderRole: 'admin',
+      targetAudience: 'freelancer_only',
+      messageText: `[SYSTEM] Payout released. Freelancer payout: ₹${updated[0].freelancerPayoutAmount?.toLocaleString() || 0}`
+    });
 
     if (updated[0].freelancerId) {
       const fl = await db.select().from(freelancers).where(eq(freelancers.id, updated[0].freelancerId)).limit(1);
@@ -610,7 +619,7 @@ adminApp.post('/orders/:id/cancel', roleGuard(['admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
     const updated = await db.update(orders).set({ status: 'cancelled', updatedAt: new Date().toISOString() }).where(eq(orders.id, orderId)).returning();
-    await db.insert(messages).values({ orderId, senderId: 0, senderRole: 'admin', messageText: '[SYSTEM] Order cancelled by Master Admin.' });
+    await db.insert(messages).values({ orderId, senderId: 0, senderRole: 'admin', targetAudience: 'all', messageText: '[SYSTEM] Order cancelled by Master Admin.' });
     return c.json({ data: updated[0] });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -639,7 +648,7 @@ adminApp.post('/orders/:id/revoke', roleGuard(['admin']), async (c) => {
       updatedAt: new Date().toISOString()
     }).where(eq(orders.id, orderId)).returning();
 
-    await db.insert(messages).values({ orderId, senderId: 0, senderRole: 'admin', messageText: '[SYSTEM] Task revoked. Order returned to assignment queue.' });
+    await db.insert(messages).values({ orderId, senderId: 0, senderRole: 'admin', targetAudience: 'internal', messageText: '[SYSTEM] Task revoked. Order returned to assignment queue.' });
     return c.json({ data: updated[0] });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
@@ -657,15 +666,23 @@ adminApp.get('/orders/:id/messages', roleGuard(['admin', 'qa_admin']), async (c)
   }
 });
 
-// ── POST Send Relay Message ──
+// ── POST Send Relay Message (with customizable target audience) ──
 adminApp.post('/orders/:id/messages', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
     const user = c.get('user');
     const orderId = Number(c.req.param('id'));
     const body = await c.req.json();
     const messageText = sanitise(body.messageText || '');
+    const targetAudience = body.targetAudience || 'all'; // 'all' | 'client_only' | 'freelancer_only' | 'internal'
+    
     if (!messageText) return c.json({ error: 'Message text is required.' }, 400);
-    const newMessage = await db.insert(messages).values({ orderId, senderId: user.id, senderRole: 'admin', messageText }).returning();
+    const newMessage = await db.insert(messages).values({
+      orderId,
+      senderId: user.id,
+      senderRole: 'admin',
+      targetAudience,
+      messageText,
+    }).returning();
     return c.json({ data: newMessage[0] }, 201);
   } catch (err: any) {
     return c.json({ error: err.message }, 500);

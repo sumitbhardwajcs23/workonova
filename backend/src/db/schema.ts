@@ -101,12 +101,13 @@ export const orders = pgTable('orders', {
 });
 
 // ─── 6. MESSAGES TABLE ────────────────────────────────────────
-// Chat messages per order between client / admin / freelancer
+// Chat messages per order between client / admin / freelancer with audience controls
 export const messages = pgTable('messages', {
   id: serial('id').primaryKey(),
   orderId: integer('order_id').notNull(),
   senderId: integer('sender_id').notNull(),
   senderRole: text('sender_role').notNull(), // 'client' | 'freelancer' | 'admin'
+  targetAudience: text('target_audience').default('all'), // 'all' | 'client_only' | 'freelancer_only' | 'internal'
   messageText: text('message_text').notNull(),
   createdAt: text('created_at').default(new Date().toISOString()),
 });

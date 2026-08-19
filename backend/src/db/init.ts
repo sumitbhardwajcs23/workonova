@@ -16,7 +16,8 @@ export async function initDatabase() {
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_by TEXT`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_at TEXT`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS accepted_at TEXT`;
-        console.log('✅ Database schema migration verified (orders table columns synced)!');
+        await sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS target_audience TEXT DEFAULT 'all'`;
+        console.log('✅ Database schema migration verified (orders & messages table columns synced)!');
       }
     } catch (migErr: any) {
       console.log('ℹ️ Schema migration note:', migErr?.message || migErr);
