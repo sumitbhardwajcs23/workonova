@@ -396,13 +396,19 @@ adminApp.get('/financials', roleGuard(['admin']), async (c) => {
     let pendingEscrowPayouts = 0;
 
     const transactions = allOrders.map(order => {
-      const isPaid = order.status !== 'pending_payment' && order.status !== 'cancelled';
+      const isPaid = order.status !== 'pending_payment' && order.status !== 'cancelled' && order.status !== 'pending_advance';
+      const orderRevenue = (order.amountPaid !== undefined && order.amountPaid !== null && order.amountPaid > 0) 
+        ? order.amountPaid 
+        : (isPaid ? order.price : 0);
+
       if (isPaid) {
-        totalCollected += (order.price || 0);
+        totalCollected += orderRevenue;
       }
-      if (order.status === 'delivered') {
+
+      const isPayoutReleased = order.payoutStatus === 'payout_released' || order.status === 'completed' || order.status === 'delivered';
+      if (isPayoutReleased) {
         totalPayoutsReleased += (order.freelancerPayoutAmount || 0);
-      } else if (['client_approved', 'qa_approved', 'submitted', 'assigned'].includes(order.status)) {
+      } else if (['client_approved', 'qa_approved', 'submitted', 'midpoint_approved', 'midpoint_submitted', 'assigned', 'paid_75', 'paid_50'].includes(order.status)) {
         pendingEscrowPayouts += (order.freelancerPayoutAmount || 0);
       }
 
@@ -414,7 +420,9 @@ adminApp.get('/financials', roleGuard(['admin']), async (c) => {
         serviceCategory: order.serviceCategory,
         tier: order.tier,
         price: order.price,
+        amountPaid: order.amountPaid || (isPaid ? order.price : 0),
         freelancerPayoutAmount: order.freelancerPayoutAmount || 0,
+        payoutStatus: order.payoutStatus || (isPayoutReleased ? 'payout_released' : 'pending'),
         status: order.status,
         paymentId: order.paymentId || 'N/A',
         razorpayOrderId: order.razorpayOrderId || 'N/A',
@@ -613,7 +621,24 @@ adminApp.post('/orders/:id/cancel', roleGuard(['admin']), async (c) => {
 adminApp.post('/orders/:id/revoke', roleGuard(['admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
-    const updated = await db.update(orders).set({ freelancerId: null, freelancerPayoutAmount: 0, status: 'paid', updatedAt: new Date().toISOString() }).where(eq(orders.id, orderId)).returning();
+    const existing = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
+    if (existing.length === 0) return c.json({ error: 'Order not found.' }, 404);
+
+    const orderRecord = existing[0];
+    const targetStatus = (orderRecord.amountPaid && orderRecord.amountPaid > 0) ? 'paid_50' : 'paid';
+
+    const updated = await db.update(orders).set({
+      freelancerId: null,
+      freelancerPayoutAmount: 0,
+      assignmentStatus: null,
+      declineReason: null,
+      declinedBy: null,
+      declinedAt: null,
+      acceptedAt: null,
+      status: targetStatus,
+      updatedAt: new Date().toISOString()
+    }).where(eq(orders.id, orderId)).returning();
+
     await db.insert(messages).values({ orderId, senderId: 0, senderRole: 'admin', messageText: '[SYSTEM] Task revoked. Order returned to assignment queue.' });
     return c.json({ data: updated[0] });
   } catch (err: any) {

@@ -107,7 +107,7 @@ clientApp.post('/orders/:id/submit', async (c) => {
     const updated = await db.update(orders).set({
       description: description || orderRecord[0].description,
       submissionLink,
-      status: orderRecord[0].status === 'pending_payment' ? 'paid_50' : orderRecord[0].status,
+      status: orderRecord[0].status,
       updatedAt: new Date().toISOString(),
     }).where(eq(orders.id, orderId)).returning();
 

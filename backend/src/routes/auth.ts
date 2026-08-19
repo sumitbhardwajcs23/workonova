@@ -168,13 +168,10 @@ authApp.post('/register', async (c) => {
     if (!['client', 'freelancer'].includes(role)) return c.json({ error: 'Self-registration is limited to client or freelancer.' }, 400);
     if (password.length < 8) return c.json({ error: 'Password must be at least 8 characters.' }, 400);
 
-    // Validate phone number: only allow digits and leading + sign
+    // Validate phone number: only allow digits and optional leading + sign (E.164 standard: 7 to 15 digits)
     const numericPhone = phone.replace(/[^\d]/g, '');
-    if (
-      !(numericPhone.startsWith('91') && numericPhone.length === 12) &&
-      !(/^[6-9]\d{9}$/.test(numericPhone) && numericPhone.length === 10)
-    ) {
-      return c.json({ error: 'Please enter a valid 10-digit Indian mobile number starting with +91 or 91.' }, 400);
+    if (numericPhone.length < 7 || numericPhone.length > 15) {
+      return c.json({ error: 'Please enter a valid phone number (7 to 15 digits).' }, 400);
     }
 
     // Check uniqueness across all 3 tables

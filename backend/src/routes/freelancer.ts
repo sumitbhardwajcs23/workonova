@@ -262,11 +262,23 @@ freelancerApp.post('/tasks/:id/messages', async (c) => {
 freelancerApp.get('/payouts', async (c) => {
   try {
     const user = c.get('user');
-    const completedTasks = await db.select({
-      id: orders.id, serviceCategory: orders.serviceCategory, tier: orders.tier,
-      freelancerPayoutAmount: orders.freelancerPayoutAmount, status: orders.status, updatedAt: orders.updatedAt,
-    }).from(orders).where(and(eq(orders.freelancerId, user.id), eq(orders.status, 'delivered')));
-    return c.json({ data: completedTasks });
+    const allMyTasks = await db.select({
+      id: orders.id,
+      serviceCategory: orders.serviceCategory,
+      tier: orders.tier,
+      freelancerPayoutAmount: orders.freelancerPayoutAmount,
+      payoutStatus: orders.payoutStatus,
+      payoutReleasedAt: orders.payoutReleasedAt,
+      status: orders.status,
+      updatedAt: orders.updatedAt,
+      createdAt: orders.createdAt,
+    }).from(orders).where(eq(orders.freelancerId, user.id));
+
+    const completedPayouts = allMyTasks.filter(t => 
+      t.payoutStatus === 'payout_released' || t.status === 'completed' || t.status === 'delivered'
+    );
+
+    return c.json({ data: completedPayouts });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
