@@ -2028,8 +2028,8 @@ export default function ClientDashboard() {
               <>
                 <div className="cd-view-header">
                   <div>
-                    <h1>👤 Account Profile &amp; Contact Details</h1>
-                    <p>Manage your client contact profile, registered phone, and secure email verification.</p>
+                    <h1>Profile Settings</h1>
+                    <p>Manage your contact details and account email address.</p>
                   </div>
                 </div>
                 <div className="cd-support-grid" style={{ gridTemplateColumns: '1.2fr 1fr' }}>
@@ -2037,7 +2037,7 @@ export default function ClientDashboard() {
                     <h3>Contact Information</h3>
                     <form onSubmit={handleSaveProfile}>
                       <div className="cd-form-row">
-                        <label className="cd-form-label">Full Name / Organization Contact</label>
+                        <label className="cd-form-label">Full Name</label>
                         <input
                           className="cd-form-input"
                           type="text"
@@ -2047,7 +2047,7 @@ export default function ClientDashboard() {
                         />
                       </div>
                       <div className="cd-form-row">
-                        <label className="cd-form-label">Phone Number (with Country Code)</label>
+                        <label className="cd-form-label">Phone Number</label>
                         <input
                           className="cd-form-input"
                           type="tel"
@@ -2055,7 +2055,7 @@ export default function ClientDashboard() {
                           value={editPhone}
                           onChange={e => setEditPhone(e.target.value)}
                         />
-                        <small style={{ color: '#888', fontSize: 11, marginTop: 4, display: 'block' }}>Used for critical milestone WhatsApp alerts and intake briefings.</small>
+                        <small style={{ color: '#888', fontSize: 11, marginTop: 4, display: 'block' }}>Used for project updates and notifications.</small>
                       </div>
                       <button
                         type="submit"
@@ -2063,22 +2063,22 @@ export default function ClientDashboard() {
                         disabled={profileSaving}
                         style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}
                       >
-                        {profileSaving ? 'Saving Changes…' : '💾 Save Profile Updates'}
+                        {profileSaving ? 'Saving…' : 'Save Changes'}
                       </button>
                     </form>
                   </div>
 
                   <div className="cd-support-card">
-                    <h3>Registered Email &amp; OTP Security</h3>
+                    <h3>Email Address</h3>
                     <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Primary Verified Email</div>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Current Email</div>
                       <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
                         <span>{clientProfile?.email || user?.email}</span>
                         <span style={{ background: '#dcfce7', color: '#166534', fontSize: 11, padding: '2px 8px', borderRadius: 12, fontWeight: 600 }}>✓ Verified</span>
                       </div>
                     </div>
                     <p style={{ fontSize: 12.5, color: '#64748b', lineHeight: 1.5, marginBottom: 16 }}>
-                      To protect your active milestone funds and deliverables, updating your email address requires 6-digit OTP verification sent directly to the new address.
+                      To update your email address, a verification code will be sent to your new email.
                     </p>
                     <button
                       type="button"
@@ -2091,7 +2091,7 @@ export default function ClientDashboard() {
                         setEmailOtpSent(false);
                       }}
                     >
-                      🔐 Change Email Address (with OTP)
+                      Update Email Address
                     </button>
                   </div>
                 </div>

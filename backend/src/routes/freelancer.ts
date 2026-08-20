@@ -97,6 +97,7 @@ freelancerApp.get('/tasks', async (c) => {
 freelancerApp.post('/tasks/:id/accept', async (c) => {
   try {
     const user = c.get('user');
+    const userIdNum = Number(user.id);
     const orderId = Number(c.req.param('id'));
 
     const taskRecords = await db.select().from(orders).where(eq(orders.id, orderId)).limit(1);
@@ -105,22 +106,25 @@ freelancerApp.post('/tasks/:id/accept', async (c) => {
     const taskRecord = taskRecords[0];
 
     // Check if user is eligible candidate
-    let isCandidate = taskRecord.freelancerId === user.id;
-    if (!isCandidate && taskRecord.assignedFreelancerIds) {
+    let candidateIds: number[] = [];
+    if (taskRecord.assignedFreelancerIds) {
       try {
         const parsed = JSON.parse(taskRecord.assignedFreelancerIds);
-        if (Array.isArray(parsed) && parsed.includes(user.id)) {
-          isCandidate = true;
-        }
+        if (Array.isArray(parsed)) candidateIds = parsed.map(Number).filter(n => !isNaN(n));
       } catch {}
     }
+    if (candidateIds.length === 0 && taskRecord.freelancerId) {
+      candidateIds = [Number(taskRecord.freelancerId)];
+    }
+
+    const isCandidate = candidateIds.includes(userIdNum) || Number(taskRecord.freelancerId) === userIdNum;
 
     if (!isCandidate) {
       return c.json({ error: 'Task not offered or assigned to your account.' }, 403);
     }
 
     // FCFS Check: Has another specialist already claimed this task?
-    if (taskRecord.assignmentStatus === 'accepted' && taskRecord.freelancerId && taskRecord.freelancerId !== user.id) {
+    if (taskRecord.assignmentStatus === 'accepted' && taskRecord.freelancerId && Number(taskRecord.freelancerId) !== userIdNum) {
       return c.json({
         error: '⚡ This project has already been claimed by another specialist (First-Come, First-Served). Thank you for your interest!',
         claimed: true,
@@ -129,8 +133,8 @@ freelancerApp.post('/tasks/:id/accept', async (c) => {
 
     const nowIso = new Date().toISOString();
     const updated = await db.update(orders).set({
-      freelancerId: user.id,
-      assignedFreelancerIds: JSON.stringify([user.id]), // Locked strictly to the winner
+      freelancerId: userIdNum,
+      assignedFreelancerIds: JSON.stringify([userIdNum]), // Locked strictly to the winner
       assignmentStatus: 'accepted',
       acceptedAt: nowIso,
       status: 'assigned',
@@ -141,7 +145,7 @@ freelancerApp.post('/tasks/:id/accept', async (c) => {
     try {
       await db.insert(messages).values({
         orderId,
-        senderId: user.id,
+        senderId: userIdNum,
         senderRole: 'freelancer',
         messageText: `[SYSTEM] 🎯 Specialist ${user.name || 'Specialist'} was the FIRST to accept Task #${orderId} (FCFS). Production is officially active!`,
       });
@@ -163,6 +167,7 @@ freelancerApp.post('/tasks/:id/accept', async (c) => {
 freelancerApp.post('/tasks/:id/reject', async (c) => {
   try {
     const user = c.get('user');
+    const userIdNum = Number(user.id);
     const orderId = Number(c.req.param('id'));
     const body = await c.req.json().catch(() => ({}));
     const reasonOption = sanitise(body.reason || '');
@@ -179,33 +184,36 @@ freelancerApp.post('/tasks/:id/reject', async (c) => {
     try {
       if (prevOrder.assignedFreelancerIds) {
         const parsed = JSON.parse(prevOrder.assignedFreelancerIds);
-        if (Array.isArray(parsed)) candidateIds = parsed;
+        if (Array.isArray(parsed)) candidateIds = parsed.map(Number).filter(n => !isNaN(n));
       }
     } catch {}
 
     if (candidateIds.length === 0 && prevOrder.freelancerId) {
-      candidateIds = [prevOrder.freelancerId];
+      candidateIds = [Number(prevOrder.freelancerId)];
     }
 
-    if (!candidateIds.includes(user.id) && prevOrder.freelancerId !== user.id) {
+    if (!candidateIds.includes(userIdNum) && Number(prevOrder.freelancerId) !== userIdNum) {
       return c.json({ error: 'Task not assigned or offered to you.' }, 403);
     }
 
     const nowIso = new Date().toISOString();
-    const remainingCandidates = candidateIds.filter(id => id !== user.id);
+    const remainingCandidates = candidateIds.filter(id => id !== userIdNum);
 
     if (remainingCandidates.length > 0) {
       // Other candidates are still invited to take the task on FCFS
       await db.update(orders).set({
         assignedFreelancerIds: JSON.stringify(remainingCandidates),
-        freelancerId: (prevOrder.freelancerId === user.id) ? null : prevOrder.freelancerId,
+        freelancerId: (Number(prevOrder.freelancerId) === userIdNum) ? null : prevOrder.freelancerId,
+        declineReason: `Declined by ${user.name || 'Specialist'}: ${fullReason}`,
+        declinedBy: user.name || 'Specialist',
+        declinedAt: nowIso,
         updatedAt: nowIso,
       }).where(eq(orders.id, orderId));
 
       try {
         await db.insert(messages).values({
           orderId,
-          senderId: user.id,
+          senderId: userIdNum,
           senderRole: 'freelancer',
           messageText: `[SYSTEM] ⚠️ Specialist ${user.name || 'Specialist'} declined the FCFS offer (Reason: "${fullReason}"). ${remainingCandidates.length} other invited specialist(s) can still accept.`,
         });
@@ -231,7 +239,7 @@ freelancerApp.post('/tasks/:id/reject', async (c) => {
       try {
         await db.insert(messages).values({
           orderId,
-          senderId: user.id,
+          senderId: userIdNum,
           senderRole: 'freelancer',
           messageText: `[SYSTEM] ⚠️ Specialist ${user.name || 'Specialist'} declined the assignment (Reason: "${fullReason}"). Order returned to Assign Desk for reassignment.`,
         });

@@ -136,8 +136,7 @@ export default function AdminDashboard() {
   const [flSort, setFlSort] = useState('earnings-high');
   const [selectedFreelancerModal, setSelectedFreelancerModal] = useState<FreelancerRow | null>(null);
 
-  // ── MODALS & SUBMIT CONTROLS ──────────────────────────────────
-  const [assignDeskTab, setAssignDeskTab] = useState<'pending' | 'assigned'>('pending');
+  const [assignDeskTab, setAssignDeskTab] = useState<'pending' | 'offered' | 'assigned' | 'declined'>('pending');
   const [assigningOrder, setAssigningOrder] = useState<Order | null>(null);
   const [selectedFreelancerIds, setSelectedFreelancerIds] = useState<number[]>([]);
   const [assignDeadline, setAssignDeadline] = useState<string>('');
@@ -1420,31 +1419,94 @@ export default function AdminDashboard() {
                 <div className="ad-table-wrap">
                   <table className="ad-table">
                     <thead>
-                      <tr><th>Order ID</th><th>Service Category</th><th>Client</th><th>Freelancer</th><th>Paid</th><th>Payout</th><th>Profit Margin</th><th>Status</th><th>Actions</th></tr>
+                      <tr>
+                        <th>Order ID</th>
+                        <th>Service Category</th>
+                        <th>Client</th>
+                        <th>Freelancer / Assignment Status</th>
+                        <th>Timeline &amp; Dates</th>
+                        <th>Paid</th>
+                        <th>Payout</th>
+                        <th>Margin</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
                     </thead>
                     <tbody>
                       {orders.map(o => {
                         const margin = o.price - (o.freelancerPayoutAmount || 0);
-                        const isStalled = o.status === 'assigned' && o.id === 98; // simulated stalled project
+                        const isStalled = o.status === 'assigned' && o.id === 98;
+                        const isPendingAcceptance = o.assignmentStatus === 'pending_acceptance';
+                        const isDeclined = o.assignmentStatus === 'declined' || Boolean(o.declineReason);
+                        const isAccepted = o.assignmentStatus === 'accepted' || Boolean(o.acceptedAt);
+
                         return (
                           <tr key={o.id} style={isStalled ? { background: '#fef2f2' } : {}}>
                             <td><b>#WN-{o.id}</b></td>
                             <td>{o.serviceCategory} ({o.tier})</td>
                             <td>{o.client?.name || 'Unknown'}</td>
-                            <td>{o.freelancer?.name || 'Unassigned'}</td>
+                            <td>
+                              {isPendingAcceptance ? (
+                                <div>
+                                  <span style={{ color: '#b45309', background: '#fef3c7', padding: '2px 7px', borderRadius: 4, fontSize: 11, fontWeight: 700, border: '1px solid #f59e0b', display: 'inline-block' }}>
+                                    ⏳ Awaiting Acceptance
+                                  </span>
+                                  <div style={{ fontSize: 10.5, color: '#64748b', marginTop: 3 }}>
+                                    {o.assignedFreelancers && o.assignedFreelancers.length > 0 ? o.assignedFreelancers.map(f => f.name).join(', ') : `${o.assignedFreelancers?.length || 1} Candidate(s)`}
+                                  </div>
+                                </div>
+                              ) : isDeclined ? (
+                                <div>
+                                  <span style={{ color: '#dc2626', background: '#fee2e2', padding: '2px 7px', borderRadius: 4, fontSize: 11, fontWeight: 700, border: '1px solid #fca5a5', display: 'inline-block' }}>
+                                    ❌ Declined by {o.declinedBy || 'Specialist'}
+                                  </span>
+                                  {o.declineReason && <div style={{ fontSize: 10, color: '#991b1b', marginTop: 2, fontStyle: 'italic' }}>"{o.declineReason}"</div>}
+                                </div>
+                              ) : isAccepted ? (
+                                <div>
+                                  <span style={{ color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 4, fontSize: 11, fontWeight: 700, border: '1px solid #86efac', display: 'inline-block' }}>
+                                    ✓ {o.freelancer?.name || `Specialist #${o.freelancerId}`}
+                                  </span>
+                                  {o.acceptedAt && (
+                                    <div style={{ fontSize: 10.5, color: '#16a34a', marginTop: 2 }}>
+                                      Accepted: {new Date(o.acceptedAt).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : o.freelancer?.name ? (
+                                <b>{o.freelancer.name}</b>
+                              ) : (
+                                <span style={{ color: '#94a3b8' }}>Unassigned</span>
+                              )}
+                            </td>
+                            <td>
+                              <div style={{ fontSize: 11, color: '#475569' }}>
+                                📅 <b>Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }) : 'N/A'}
+                              </div>
+                              {o.durationValue && (
+                                <div style={{ fontSize: 10.5, color: '#059669', fontWeight: 600 }}>
+                                  ⏱️ {o.durationValue} {o.durationUnit || 'days'}
+                                </div>
+                              )}
+                              {o.deadline && (
+                                <div style={{ fontSize: 10.5, color: '#2563eb' }}>
+                                  Due: {new Date(o.deadline).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}
+                                </div>
+                              )}
+                            </td>
                             <td>₹{o.price.toLocaleString()}</td>
                             <td>₹{o.freelancerPayoutAmount?.toLocaleString() || 0}</td>
                             <td style={{ color: margin > 0 ? '#166534' : '#991b1b', fontWeight: 600 }}>₹{margin.toLocaleString()}</td>
                             <td><span className={`fd-status-pill ${o.status}`}>{o.status.toUpperCase()}</span></td>
-                            <td style={{ display: 'flex', gap: 6 }}>
+                            <td style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                               <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
-                              {(!o.freelancerId || ['paid', 'paid_50', 'paid_75', 'pending_payment'].includes(o.status)) && (
+                              {(!o.freelancerId || ['paid', 'paid_50', 'paid_75', 'pending_payment'].includes(o.status) || isDeclined || isPendingAcceptance) && (
                                 <button 
                                   className="ad-pag-btn active" 
                                   title="Assign this task to specialist freelancer(s) on FCFS basis"
                                   onClick={() => openAssignModal(o)}
                                 >
-                                  🎯 Assign
+                                  {isDeclined ? '🎯 Reassign' : (isPendingAcceptance ? '🔄 Edit Offers' : '🎯 Assign')}
                                 </button>
                               )}
                               <button className="ad-pag-btn" onClick={() => {
@@ -1673,8 +1735,10 @@ export default function AdminDashboard() {
                 </div>
 
                 {(() => {
-                  const unassignedOrders = orders.filter(o => !o.freelancerId && ['paid', 'paid_50', 'paid_75', 'pending_payment'].includes(o.status));
-                  const assignedOrders = orders.filter(o => Boolean(o.freelancerId) || ['assigned', 'midpoint_submitted', 'midpoint_approved', 'submitted', 'qa_approved', 'revision_requested'].includes(o.status));
+                  const unassignedOrders = orders.filter(o => !o.freelancerId && o.assignmentStatus !== 'pending_acceptance' && ['paid', 'paid_50', 'paid_75', 'pending_payment'].includes(o.status));
+                  const pendingAcceptanceOrders = orders.filter(o => o.assignmentStatus === 'pending_acceptance');
+                  const activeProductionOrders = orders.filter(o => (o.assignmentStatus === 'accepted' || (Boolean(o.freelancerId) && o.assignmentStatus !== 'pending_acceptance')) && ['assigned', 'midpoint_submitted', 'midpoint_approved', 'submitted', 'qa_approved', 'revision_requested'].includes(o.status));
+                  const declinedOrders = orders.filter(o => o.assignmentStatus === 'declined' || Boolean(o.declineReason));
 
                   return (
                     <div>
@@ -1688,27 +1752,46 @@ export default function AdminDashboard() {
                           <span className="ad-assign-tab-badge">{unassignedOrders.length}</span>
                         </button>
                         <button
+                          className={`ad-assign-tab-btn ${assignDeskTab === 'offered' ? 'active' : ''}`}
+                          onClick={() => setAssignDeskTab('offered')}
+                        >
+                          <span>⚡ Offered / Awaiting Acceptance</span>
+                          <span className="ad-assign-tab-badge" style={{ background: '#fef3c7', color: '#92400e', borderColor: '#fde68a' }}>{pendingAcceptanceOrders.length}</span>
+                        </button>
+                        <button
                           className={`ad-assign-tab-btn ${assignDeskTab === 'assigned' ? 'active' : ''}`}
                           onClick={() => setAssignDeskTab('assigned')}
                         >
-                          <span>👥 Active Specialist Tasks</span>
-                          <span className="ad-assign-tab-badge">{assignedOrders.length}</span>
+                          <span>👥 Active in Production</span>
+                          <span className="ad-assign-tab-badge" style={{ background: '#dcfce7', color: '#166534', borderColor: '#86efac' }}>{activeProductionOrders.length}</span>
+                        </button>
+                        <button
+                          className={`ad-assign-tab-btn ${assignDeskTab === 'declined' ? 'active' : ''}`}
+                          onClick={() => setAssignDeskTab('declined')}
+                        >
+                          <span>❌ Declined Offers</span>
+                          <span className="ad-assign-tab-badge" style={{ background: '#fee2e2', color: '#991b1b', borderColor: '#fca5a5' }}>{declinedOrders.length}</span>
                         </button>
                       </div>
 
-                      {/* TAB 1: PENDING ASSIGNMENT */}
+                      {/* TAB 1: PENDING INITIAL ASSIGNMENT */}
                       {assignDeskTab === 'pending' && (
                         <div>
                           {unassignedOrders.length === 0 ? (
                             <div className="ad-assign-empty-card">
                               <div style={{ fontSize: 36, marginBottom: 12 }}>🎉</div>
-                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>All active client orders are assigned!</h3>
+                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>All active client orders are assigned or offered!</h3>
                               <p style={{ color: '#888', fontSize: 14, maxWidth: 440, margin: '0 auto 16px' }}>
-                                There are currently no unassigned paid projects. Switch to the "Active Specialist Tasks" tab to review or reassign ongoing deliverables.
+                                There are currently no unassigned projects. Check the "Offered" or "Active in Production" tabs to track progress.
                               </p>
-                              <button className="ad-btn-secondary" onClick={() => setAssignDeskTab('assigned')}>
-                                View Active Assigned Tasks ({assignedOrders.length})
-                              </button>
+                              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                                <button className="ad-btn-secondary" onClick={() => setAssignDeskTab('offered')}>
+                                  View Pending Offers ({pendingAcceptanceOrders.length})
+                                </button>
+                                <button className="ad-btn-primary" onClick={() => setAssignDeskTab('assigned')}>
+                                  View Active Production ({activeProductionOrders.length})
+                                </button>
+                              </div>
                             </div>
                           ) : (
                             (() => {
@@ -1723,7 +1806,6 @@ export default function AdminDashboard() {
                               return (
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
                                   {Object.entries(grouped).map(([category, catOrders]) => {
-                                    // Freelancers who have this category in their services
                                     const matchedFreelancers = freelancers.filter(f =>
                                       (f.services || []).some(s =>
                                         s.toLowerCase().includes(category.toLowerCase()) ||
@@ -1740,17 +1822,6 @@ export default function AdminDashboard() {
                                             <span>{category}</span>
                                             <span className="ad-assign-cat-badge">{catOrders.length} unassigned order{catOrders.length > 1 ? 's' : ''}</span>
                                           </div>
-                                          <div className="ad-assign-cat-meta">
-                                            {matchedFreelancers.length > 0 ? (
-                                              <span className="ad-assign-match-pill matched">
-                                                ✓ {matchedFreelancers.length} matched specialist{matchedFreelancers.length > 1 ? 's' : ''}
-                                              </span>
-                                            ) : (
-                                              <span className="ad-assign-match-pill none">
-                                                ⚠ {freelancers.length > 0 ? 'No exact keyword match (all freelancers available in dropdown)' : 'No freelancers registered'}
-                                              </span>
-                                            )}
-                                          </div>
                                         </div>
 
                                         {/* Matched freelancer chips */}
@@ -1758,91 +1829,53 @@ export default function AdminDashboard() {
                                           <div className="ad-assign-freelancer-chips">
                                             {matchedFreelancers.map(f => (
                                               <div key={f.id} className="ad-assign-freelancer-chip">
-                                                <span className="ad-assign-chip-avatar">{f.name.charAt(0).toUpperCase()}</span>
+                                                <div className="ad-fl-avatar">{f.name.charAt(0).toUpperCase()}</div>
                                                 <div>
-                                                  <div className="ad-assign-chip-name">{f.name}</div>
-                                                  <div className="ad-assign-chip-skills">
-                                                    {(f.services || []).slice(0, 3).join(' · ')}
+                                                  <div className="ad-fl-name">{f.name}</div>
+                                                  <div className="ad-fl-sub">
+                                                    {(f.services || []).slice(0, 2).join(', ')}
                                                   </div>
                                                 </div>
-                                                <span className="ad-assign-chip-matched">Expert ✓</span>
                                               </div>
                                             ))}
                                           </div>
-                                        ) : freelancers.length === 0 ? (
-                                          <div style={{ padding: '12px 18px', background: '#fef2f2', borderBottom: '1px solid #fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                                            <span style={{ fontSize: 13, color: '#991b1b' }}>⚠️ No freelancers found in the system roster.</span>
-                                            <button className="ad-btn-primary" style={{ padding: '6px 14px', fontSize: 12 }} onClick={() => setOnboardingOpen(true)}>+ Quick Onboard Freelancer</button>
-                                          </div>
                                         ) : null}
 
-                                        {/* Order cards in this category */}
-                                        <div className="ad-qc-grid">
+                                        {/* Order cards */}
+                                        <div className="ad-assign-cards-grid">
                                           {catOrders.map(o => (
-                                            <div className="ad-qc-card" key={o.id} style={o.declineReason ? { borderColor: '#fca5a5' } : {}}>
-                                              <div className="ad-qc-header">
+                                            <div key={o.id} className="ad-assign-card">
+                                              <div className="ad-assign-card-top">
                                                 <div>
-                                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                                                    <h3 style={{ margin: 0, fontSize: 16 }}>Order #WN-{o.id}</h3>
-                                                    {o.declineReason && (
-                                                      <span style={{ fontSize: 10, fontWeight: 800, color: '#dc2626', background: '#fee2e2', padding: '2px 6px', borderRadius: 4, border: '1px solid #f87171' }}>
-                                                        DECLINED
-                                                      </span>
-                                                    )}
-                                                  </div>
-                                                  <small style={{ color: '#888', fontSize: 12 }}>{o.serviceCategory}</small>
+                                                  <span className="ad-assign-order-id">#WN-{o.id}</span>
+                                                  <span className="ad-assign-tier-pill">{o.tier?.toUpperCase() || 'STANDARD'}</span>
                                                 </div>
-                                                <div style={{ textAlign: 'right' }}>
-                                                  <b style={{ fontSize: 16, color: '#16a34a' }}>₹{o.price.toLocaleString()}</b>
-                                                  <div style={{ fontSize: 11, color: '#888' }}>Tier: {o.tier?.toUpperCase() || 'STANDARD'}</div>
+                                                <span className="ad-assign-price">₹{o.price.toLocaleString()}</span>
+                                              </div>
+
+                                              <p className="ad-assign-brief">{o.description || 'No client brief text provided.'}</p>
+
+                                              <div className="ad-assign-order-meta">
+                                                <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
+                                                <span>Target Payout: <b>₹{(o.freelancerPayoutAmount || Math.floor(o.price * 0.7)).toLocaleString()}</b></span>
+                                              </div>
+
+                                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 11.5, background: '#f8fafc', padding: '6px 8px', borderRadius: 6, marginBottom: 10 }}>
+                                                <div style={{ color: '#475569' }}>
+                                                  📅 <b>Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                                                </div>
+                                                <div style={{ color: '#059669', fontWeight: 600 }}>
+                                                  ⏱️ <b>Time Limit:</b> {o.durationValue ? `${o.durationValue} ${o.durationUnit || 'days'}` : '3-5 days'}
                                                 </div>
                                               </div>
-                                              <p className="ad-qc-brief">{o.description || 'No brief details provided.'}</p>
 
-                                              {/* Timeline and Deadline badge if set by client or admin */}
-                                              {(o.deadline || o.durationValue) && (
-                                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0', fontSize: 12 }}>
-                                                  {o.durationValue && (
-                                                    <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '3px 8px', borderRadius: 6, fontWeight: 600 }}>
-                                                      ⏱️ Time Limit: {o.durationValue} {o.durationUnit || 'days'}
-                                                    </span>
-                                                  )}
-                                                  {o.deadline && (
-                                                    <span style={{ background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '3px 8px', borderRadius: 6, fontWeight: 600 }}>
-                                                      📅 End Date: {new Date(o.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                              )}
-
-                                               <div className="ad-assign-order-meta" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, margin: '8px 0' }}>
-                                                 <div>Client: <b>{o.client?.name || `#${o.clientId}`}</b></div>
-                                                 <div>Status: <span className={`fd-status-pill ${o.status}`} style={{ fontSize: 10 }}>{o.status.replace('_', ' ').toUpperCase()}</span></div>
-                                                 <div style={{ color: '#475569', gridColumn: 'span 2' }}>
-                                                   📅 <b>Order Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                                                 </div>
-                                               </div>
-
-                                              {/* Notice text if specified */}
-                                              {o.projectNotice && (
-                                                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: '#92400e', marginBottom: 8 }}>
-                                                  <b>📝 Client Notice:</b> {o.projectNotice}
-                                                </div>
-                                              )}
-
-                                              {/* Decline Notice Banner if previously rejected */}
-                                              {o.declineReason && (
-                                                <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: '#991b1b', margin: '8px 0' }}>
-                                                  <b>⚠️ Declined by {o.declinedBy || 'Specialist'}:</b> "{o.declineReason}"
-                                                  {o.declinedAt && <div style={{ fontSize: 10.5, color: '#b91c1c', marginTop: 2 }}>Declined on: {new Date(o.declinedAt).toLocaleString()}</div>}
-                                                </div>
-                                              )}
-                                              <div className="ad-qc-actions">
+                                              <div className="ad-assign-card-actions">
                                                 <button
                                                   className="ad-btn-primary"
+                                                  style={{ width: '100%' }}
                                                   onClick={() => openAssignModal(o)}
                                                 >
-                                                  {o.declineReason ? '🔄 Re-Assign to New Specialist(s)' : '🎯 Assign / FCFS Multi-Offer'}
+                                                  🎯 Select Specialists &amp; Assign →
                                                 </button>
                                               </div>
                                             </div>
@@ -1858,94 +1891,55 @@ export default function AdminDashboard() {
                         </div>
                       )}
 
-                      {/* TAB 2: ACTIVE ASSIGNMENTS */}
-                      {assignDeskTab === 'assigned' && (
+                      {/* TAB 2: OFFERED / AWAITING SPECIALIST ACCEPTANCE */}
+                      {assignDeskTab === 'offered' && (
                         <div>
-                          {assignedOrders.length === 0 ? (
+                          {pendingAcceptanceOrders.length === 0 ? (
                             <div className="ad-assign-empty-card">
-                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>No tasks currently in production</h3>
-                              <p style={{ color: '#888', fontSize: 14 }}>Assign tasks from the "Awaiting Assignment" tab to start production.</p>
+                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>No pending assignment offers</h3>
+                              <p style={{ color: '#888', fontSize: 14 }}>When you assign or broadcast tasks to specialists, they will appear here until accepted.</p>
                             </div>
                           ) : (
                             <div className="ad-qc-grid">
-                              {assignedOrders.map(o => {
-                                const isPendingAcceptance = o.assignmentStatus === 'pending_acceptance';
-                                let candidateNames = '';
-                                if (o.assignedFreelancers && o.assignedFreelancers.length > 0) {
-                                  candidateNames = o.assignedFreelancers.map(f => f.name).join(', ');
-                                }
+                              {pendingAcceptanceOrders.map(o => {
+                                const candidateNames = o.assignedFreelancers && o.assignedFreelancers.length > 0
+                                  ? o.assignedFreelancers.map(f => f.name).join(', ')
+                                  : (o.freelancer?.name || 'Invited Specialist');
                                 return (
-                                  <div className="ad-qc-card" key={o.id}>
+                                  <div className="ad-qc-card" key={o.id} style={{ borderLeft: '4px solid #f59e0b' }}>
                                     <div className="ad-qc-header">
                                       <div>
                                         <h3>Order #WN-{o.id}</h3>
                                         <small style={{ color: '#888' }}>{o.serviceCategory} ({o.tier?.toUpperCase() || 'STANDARD'})</small>
                                       </div>
-                                      <span className="ad-assign-assigned-badge" style={isPendingAcceptance ? { background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' } : {}}>
-                                        {isPendingAcceptance ? (
-                                          `⚡ FCFS Multi-Offer (${o.assignedFreelancers?.length || 1} Invited)`
-                                        ) : (
-                                          `👤 ${o.freelancer?.name || `Specialist #${o.freelancerId}`}`
-                                        )}
+                                      <span className="ad-assign-assigned-badge" style={{ background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                                        ⏳ Awaiting Acceptance ({o.assignedFreelancers?.length || 1} Invited)
                                       </span>
                                     </div>
                                     <p className="ad-qc-brief">{o.description || 'No brief provided.'}</p>
 
-                                    {/* Timeline and Deadline */}
-                                    {(o.deadline || o.durationValue) && (
-                                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '6px 0', fontSize: 12 }}>
-                                        {o.durationValue && (
-                                          <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 5, fontWeight: 600 }}>
-                                            ⏱️ {o.durationValue} {o.durationUnit || 'days'}
-                                          </span>
-                                        )}
-                                        {o.deadline && (
-                                          <span style={{ background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '2px 7px', borderRadius: 5, fontWeight: 600 }}>
-                                            📅 Due: {new Date(o.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                          </span>
-                                        )}
+                                    <div style={{ background: '#fefce8', border: '1px solid #fef08a', padding: '8px 10px', borderRadius: 6, margin: '8px 0', fontSize: 12 }}>
+                                      <b style={{ color: '#854d0e' }}>⚡ FCFS Candidate Pool:</b>
+                                      <div style={{ color: '#713f12', marginTop: 2 }}>{candidateNames}</div>
+                                    </div>
+
+                                    <div className="ad-assign-order-meta" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, margin: '8px 0' }}>
+                                      <div>Client: <b>{o.client?.name || `#${o.clientId}`}</b></div>
+                                      <div>Agreed Payout: <b style={{ color: '#16a34a' }}>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></div>
+                                      <div style={{ color: '#475569' }}>
+                                        📅 <b>Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                                       </div>
-                                    )}
+                                      <div style={{ color: '#d97706' }}>
+                                        🎯 <b>Offered:</b> {o.assignedAt ? new Date(o.assignedAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recently'}
+                                      </div>
+                                    </div>
 
-                                     <div className="ad-assign-order-meta" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, margin: '8px 0' }}>
-                                       <div>Client: <b>{o.client?.name || `#${o.clientId}`}</b></div>
-                                       <div>Agreed Payout: <b style={{ color: '#16a34a' }}>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></div>
-                                       <div style={{ color: '#475569' }}>
-                                         📅 <b>Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
-                                       </div>
-                                       <div style={{ color: '#2563eb' }}>
-                                         🎯 <b>Assigned:</b> {o.assignedAt ? new Date(o.assignedAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : (o.updatedAt ? new Date(o.updatedAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recently')}
-                                       </div>
-                                     </div>
-
-                                    {/* Project Notice */}
                                     {o.projectNotice && (
                                       <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '5px 8px', fontSize: 11.5, color: '#92400e', marginBottom: 6 }}>
                                         <b>📝 Notice:</b> {o.projectNotice}
                                       </div>
                                     )}
 
-                                    {/* Candidate list if FCFS pending */}
-                                    {isPendingAcceptance && candidateNames && (
-                                      <div style={{ fontSize: 11.5, color: '#64748b', background: '#f8fafc', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', marginBottom: 8 }}>
-                                        <b>⚡ Invited Candidates:</b> {candidateNames}
-                                      </div>
-                                    )}
-                                     <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                        <span className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</span>
-                                        {isPendingAcceptance ? (
-                                          <span style={{ fontSize: 10.5, fontWeight: 800, color: '#b45309', background: '#fef3c7', padding: '2px 7px', borderRadius: 4, border: '1px solid #f59e0b', textTransform: 'uppercase' }}>
-                                            ⏳ Awaiting Specialist Acceptance (FCFS)
-                                          </span>
-                                        ) : (
-                                          <span style={{ fontSize: 10.5, fontWeight: 800, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 4, border: '1px solid #86efac', textTransform: 'uppercase' }}>
-                                            ✓ In Production
-                                          </span>
-                                        )}
-                                      </div>
-                                      {o.midpointSubmissionLink && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ 50% Midpoint uploaded</span>}
-                                    </div>
                                     <div className="ad-qc-actions" style={{ display: 'flex', gap: 8 }}>
                                       <button
                                         className="ad-btn-primary"
@@ -1959,6 +1953,149 @@ export default function AdminDashboard() {
                                   </div>
                                 );
                               })}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* TAB 3: ACTIVE IN PRODUCTION */}
+                      {assignDeskTab === 'assigned' && (
+                        <div>
+                          {activeProductionOrders.length === 0 ? (
+                            <div className="ad-assign-empty-card">
+                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>No tasks currently in production</h3>
+                              <p style={{ color: '#888', fontSize: 14 }}>Once a specialist accepts an offer, the task appears here for milestone tracking.</p>
+                            </div>
+                          ) : (
+                            <div className="ad-qc-grid">
+                              {activeProductionOrders.map(o => (
+                                <div className="ad-qc-card" key={o.id} style={{ borderLeft: '4px solid #10b981' }}>
+                                  <div className="ad-qc-header">
+                                    <div>
+                                      <h3>Order #WN-{o.id}</h3>
+                                      <small style={{ color: '#888' }}>{o.serviceCategory} ({o.tier?.toUpperCase() || 'STANDARD'})</small>
+                                    </div>
+                                    <span className="ad-assign-assigned-badge" style={{ background: '#dcfce7', color: '#166534', border: '1px solid #86efac' }}>
+                                      ✓ {o.freelancer?.name || `Specialist #${o.freelancerId}`}
+                                    </span>
+                                  </div>
+                                  <p className="ad-qc-brief">{o.description || 'No brief provided.'}</p>
+
+                                  {(o.deadline || o.durationValue) && (
+                                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '6px 0', fontSize: 12 }}>
+                                      {o.durationValue && (
+                                        <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 5, fontWeight: 600 }}>
+                                          ⏱️ {o.durationValue} {o.durationUnit || 'days'}
+                                        </span>
+                                      )}
+                                      {o.deadline && (
+                                        <span style={{ background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '2px 7px', borderRadius: 5, fontWeight: 600 }}>
+                                          📅 Due: {new Date(o.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  <div className="ad-assign-order-meta" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, margin: '8px 0' }}>
+                                    <div>Client: <b>{o.client?.name || `#${o.clientId}`}</b></div>
+                                    <div>Agreed Payout: <b style={{ color: '#16a34a' }}>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></div>
+                                    <div style={{ color: '#475569' }}>
+                                      📅 <b>Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                                    </div>
+                                    <div style={{ color: '#16a34a' }}>
+                                      ✓ <b>Accepted:</b> {o.acceptedAt ? new Date(o.acceptedAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : (o.assignedAt ? new Date(o.assignedAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Active')}
+                                    </div>
+                                  </div>
+
+                                  {o.projectNotice && (
+                                    <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '5px 8px', fontSize: 11.5, color: '#92400e', marginBottom: 6 }}>
+                                      <b>📝 Notice:</b> {o.projectNotice}
+                                    </div>
+                                  )}
+
+                                  <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                      <span className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</span>
+                                      <span style={{ fontSize: 10.5, fontWeight: 800, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 4, border: '1px solid #86efac', textTransform: 'uppercase' }}>
+                                        ✓ In Production
+                                      </span>
+                                    </div>
+                                    {o.midpointSubmissionLink && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ 50% Midpoint uploaded</span>}
+                                  </div>
+                                  <div className="ad-qc-actions" style={{ display: 'flex', gap: 8 }}>
+                                    <button
+                                      className="ad-btn-secondary"
+                                      style={{ flex: 1 }}
+                                      onClick={() => openAssignModal(o)}
+                                    >
+                                      🔄 Re-assign Specialist
+                                    </button>
+                                    <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* TAB 4: DECLINED OFFERS */}
+                      {assignDeskTab === 'declined' && (
+                        <div>
+                          {declinedOrders.length === 0 ? (
+                            <div className="ad-assign-empty-card">
+                              <div style={{ fontSize: 36, marginBottom: 12 }}>🛡️</div>
+                              <h3 style={{ fontSize: 18, marginBottom: 6 }}>No declined project offers</h3>
+                              <p style={{ color: '#888', fontSize: 14 }}>All specialist assignments have been accepted or are actively pending.</p>
+                            </div>
+                          ) : (
+                            <div className="ad-qc-grid">
+                              {declinedOrders.map(o => (
+                                <div className="ad-qc-card" key={o.id} style={{ borderLeft: '4px solid #ef4444' }}>
+                                  <div className="ad-qc-header">
+                                    <div>
+                                      <h3>Order #WN-{o.id}</h3>
+                                      <small style={{ color: '#888' }}>{o.serviceCategory} ({o.tier?.toUpperCase() || 'STANDARD'})</small>
+                                    </div>
+                                    <span className="ad-assign-assigned-badge" style={{ background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>
+                                      ✕ Declined by {o.declinedBy || 'Specialist'}
+                                    </span>
+                                  </div>
+                                  <p className="ad-qc-brief">{o.description || 'No brief provided.'}</p>
+
+                                  <div style={{ background: '#fef2f2', border: '1px solid #fecaca', padding: '10px 12px', borderRadius: 6, margin: '8px 0', fontSize: 12 }}>
+                                    <div style={{ color: '#991b1b', fontWeight: 700 }}>✕ Reason for Declining:</div>
+                                    <div style={{ color: '#7f1d1d', marginTop: 2, fontStyle: 'italic' }}>"{o.declineReason || 'Schedule / Bandwidth constraints'}"</div>
+                                    {o.declinedAt && (
+                                      <div style={{ fontSize: 11, color: '#b91c1c', marginTop: 4 }}>
+                                        Declined on: {new Date(o.declinedAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  <div className="ad-assign-order-meta" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, margin: '8px 0' }}>
+                                    <div>Client: <b>{o.client?.name || `#${o.clientId}`}</b></div>
+                                    <div>Order Price: <b>₹{o.price.toLocaleString()}</b></div>
+                                    <div style={{ color: '#475569' }}>
+                                      📅 <b>Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                                    </div>
+                                    <div style={{ color: '#dc2626', fontWeight: 600 }}>
+                                      ⚠️ Needs Reassignment
+                                    </div>
+                                  </div>
+
+                                  <div className="ad-qc-actions" style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                                    <button
+                                      className="ad-btn-primary"
+                                      style={{ flex: 1, background: '#dc2626', borderColor: '#b91c1c' }}
+                                      onClick={() => openAssignModal(o)}
+                                    >
+                                      🎯 Reassign to Another Specialist →
+                                    </button>
+                                    <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
+                                  </div>
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>
