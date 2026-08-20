@@ -79,8 +79,21 @@ app.route('/api/public', publicApp);
 import { handle } from 'hono/aws-lambda';
 import { initDatabase } from './db/init.js';
 
-// Export handler for AWS Lambda
-export const handler = handle(app);
+let dbInitialized = false;
+const rawHandler = handle(app);
+
+// Export handler for AWS Lambda (with automatic cold-start DB migration check)
+export const handler = async (event: any, context: any) => {
+  if (!dbInitialized) {
+    try {
+      await initDatabase();
+      dbInitialized = true;
+    } catch (e) {
+      console.error('Lambda DB init warning:', e);
+    }
+  }
+  return rawHandler(event, context);
+};
 
 // Run local Node server in development only (when not inside AWS Lambda)
 if (!process.env.AWS_LAMBDA_FUNCTION_NAME) {
