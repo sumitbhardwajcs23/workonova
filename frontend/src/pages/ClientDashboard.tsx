@@ -895,9 +895,9 @@ export default function ClientDashboard() {
 
       const createdDate = new Date(o.createdAt || Date.now());
       const estDate = o.deadline ? new Date(o.deadline) : new Date(createdDate.getTime() + 4 * 24 * 60 * 60 * 1000);
-      const formattedCreated = createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
+      const formattedCreated = createdDate.toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
       const formattedEst = o.deadline
-        ? estDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        ? estDate.toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
         : estDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
       const deliverableLinks = o.qaApprovedLink ? [{ name: '🖼️ Download Final QA Assets', url: o.qaApprovedLink }] : (o.midpointSubmissionLink ? [{ name: '📁 Preview 50% Midpoint Work', url: o.midpointSubmissionLink }] : []);
       const updates = [{ date: createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: o.status === 'on_demand_review' ? '₹100 Advance received. Custom scoping under review.' : 'Intake brief successfully submitted.' }];

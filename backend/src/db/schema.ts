@@ -92,6 +92,7 @@ export const orders = pgTable('orders', {
   projectNotice: text('project_notice'),             // Client's review notice / milestone instructions
   freelancerPayoutAmount: integer('freelancer_payout_amount'),
   assignmentStatus: text('assignment_status'), // 'pending_acceptance' | 'accepted' | 'declined'
+  assignedAt: text('assigned_at'),                 // Timestamp when task was assigned by admin
   declineReason: text('decline_reason'),           // Reason recorded if specialist declines offer
   declinedBy: text('declined_by'),                 // Specialist name who declined
   declinedAt: text('declined_at'),                 // Timestamp when declined

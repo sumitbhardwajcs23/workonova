@@ -223,6 +223,7 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
       assignedFreelancerIds: assignedIdsJson,
       freelancerPayoutAmount: payoutAmount,
       assignmentStatus: 'pending_acceptance',
+      assignedAt: new Date().toISOString(),
       declineReason: null,
       declinedBy: null,
       declinedAt: null,

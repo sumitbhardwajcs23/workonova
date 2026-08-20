@@ -36,6 +36,7 @@ interface Order {
   payoutStatus?: string;
   payoutReleasedAt?: string;
   adminRevisionComments?: string;
+  assignedAt?: string;
   createdAt: string;
   updatedAt?: string;
   client?: { name: string; email: string; phone?: string; status?: string; createdAt?: string; };
@@ -1814,6 +1815,14 @@ export default function AdminDashboard() {
                                                 </div>
                                               )}
 
+                                               <div className="ad-assign-order-meta" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, margin: '8px 0' }}>
+                                                 <div>Client: <b>{o.client?.name || `#${o.clientId}`}</b></div>
+                                                 <div>Status: <span className={`fd-status-pill ${o.status}`} style={{ fontSize: 10 }}>{o.status.replace('_', ' ').toUpperCase()}</span></div>
+                                                 <div style={{ color: '#475569', gridColumn: 'span 2' }}>
+                                                   📅 <b>Order Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                                                 </div>
+                                               </div>
+
                                               {/* Notice text if specified */}
                                               {o.projectNotice && (
                                                 <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: '#92400e', marginBottom: 8 }}>
@@ -1828,11 +1837,6 @@ export default function AdminDashboard() {
                                                   {o.declinedAt && <div style={{ fontSize: 10.5, color: '#b91c1c', marginTop: 2 }}>Declined on: {new Date(o.declinedAt).toLocaleString()}</div>}
                                                 </div>
                                               )}
-
-                                              <div className="ad-assign-order-meta">
-                                                <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
-                                                <span>Status: <b className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</b></span>
-                                              </div>
                                               <div className="ad-qc-actions">
                                                 <button
                                                   className="ad-btn-primary"
@@ -1903,6 +1907,17 @@ export default function AdminDashboard() {
                                       </div>
                                     )}
 
+                                     <div className="ad-assign-order-meta" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 8px', fontSize: 11.5, background: '#f8fafc', padding: '8px 10px', borderRadius: 6, margin: '8px 0' }}>
+                                       <div>Client: <b>{o.client?.name || `#${o.clientId}`}</b></div>
+                                       <div>Agreed Payout: <b style={{ color: '#16a34a' }}>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></div>
+                                       <div style={{ color: '#475569' }}>
+                                         📅 <b>Placed:</b> {o.createdAt ? new Date(o.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                                       </div>
+                                       <div style={{ color: '#2563eb' }}>
+                                         🎯 <b>Assigned:</b> {o.assignedAt ? new Date(o.assignedAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : (o.updatedAt ? new Date(o.updatedAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Recently')}
+                                       </div>
+                                     </div>
+
                                     {/* Project Notice */}
                                     {o.projectNotice && (
                                       <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '5px 8px', fontSize: 11.5, color: '#92400e', marginBottom: 6 }}>
@@ -1916,12 +1931,7 @@ export default function AdminDashboard() {
                                         <b>⚡ Invited Candidates:</b> {candidateNames}
                                       </div>
                                     )}
-
-                                    <div className="ad-assign-order-meta">
-                                      <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
-                                      <span>Agreed Payout: <b>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></span>
-                                    </div>
-                                    <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                     <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                         <span className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</span>
                                         {isPendingAcceptance ? (
@@ -3110,7 +3120,7 @@ export default function AdminDashboard() {
 
               <div className="ad-modal-body">
                 {/* Order info strip */}
-                <div className="ad-assign-modal-info" style={{ marginBottom: 14 }}>
+                <div className="ad-assign-modal-info" style={{ marginBottom: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px' }}>
                   <div className="ad-assign-modal-info-row">
                     <span className="ad-assign-modal-label">Client Name</span>
                     <span className="ad-assign-modal-value">{assigningOrder.client?.name || `Client #${assigningOrder.clientId}`}</span>
@@ -3118,6 +3128,12 @@ export default function AdminDashboard() {
                   <div className="ad-assign-modal-info-row">
                     <span className="ad-assign-modal-label">Client Price</span>
                     <span className="ad-assign-modal-value" style={{ color: '#16a34a', fontWeight: 800 }}>₹{assigningOrder.price.toLocaleString()}</span>
+                  </div>
+                  <div className="ad-assign-modal-info-row">
+                    <span className="ad-assign-modal-label">Order Placed Date</span>
+                    <span className="ad-assign-modal-value" style={{ color: '#0f172a', fontWeight: 600 }}>
+                      {assigningOrder.createdAt ? new Date(assigningOrder.createdAt).toLocaleString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'N/A'}
+                    </span>
                   </div>
                   <div className="ad-assign-modal-info-row">
                     <span className="ad-assign-modal-label">Intake Assets</span>

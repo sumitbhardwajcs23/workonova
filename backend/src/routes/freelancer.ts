@@ -37,6 +37,7 @@ freelancerApp.get('/tasks', async (c) => {
       durationUnit: orders.durationUnit,
       projectNotice: orders.projectNotice,
       assignmentStatus: orders.assignmentStatus,
+      assignedAt: orders.assignedAt,
       declineReason: orders.declineReason,
       declinedBy: orders.declinedBy,
       declinedAt: orders.declinedAt,

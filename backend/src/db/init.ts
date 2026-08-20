@@ -12,6 +12,7 @@ export async function initDatabase() {
     try {
       if (sql) {
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS assignment_status TEXT DEFAULT 'accepted'`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS assigned_at TEXT`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS decline_reason TEXT`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_by TEXT`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_at TEXT`;

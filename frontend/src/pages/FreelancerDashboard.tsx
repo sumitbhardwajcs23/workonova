@@ -35,6 +35,7 @@ interface Task {
   durationValue?: number;
   durationUnit?: string;
   projectNotice?: string;
+  assignedAt?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -47,6 +48,20 @@ interface Message {
   messageText: string;
   createdAt: string;
 }
+
+// Format date & time helper
+const formatDateTime = (dateStr?: string) => {
+  if (!dateStr) return null;
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleString('en-IN', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
 
 // Countdown & time calculation helper
 const getTimeRemaining = (deadlineStr?: string) => {
@@ -548,8 +563,17 @@ export default function FreelancerDashboard() {
   };
 
   // ── COUNTS & FILTERING ────────────────────────────────────────
+  const isTaskPendingAcceptance = (t: Task): boolean => {
+    if (t.status === 'delivered' || t.status === 'cancelled') return false;
+    if (t.assignmentStatus === 'accepted') return false;
+    if (t.assignmentStatus === 'pending_acceptance' || t.assignmentStatus === 'pending') return true;
+    if (t.isFcfsOffer) return true;
+    if (t.status === 'assigned' && !t.acceptedAt) return true;
+    return false;
+  };
+
   const activeTasks = tasksList.filter(t => !['delivered', 'cancelled'].includes(t.status));
-  const pendingOffers = tasksList.filter(t => t.assignmentStatus === 'pending_acceptance' && !['delivered', 'cancelled'].includes(t.status));
+  const pendingOffers = tasksList.filter(isTaskPendingAcceptance);
   const pendingOffersCount = pendingOffers.length;
 
   const getCategoryFromService = (service: string): string => {
@@ -562,12 +586,12 @@ export default function FreelancerDashboard() {
   };
 
   const getFilteredTasks = () => {
-    return tasksList.filter(t => {
+    const list = tasksList.filter(t => {
       // Status/workflow filter
       if (currentView === 'all') {
         if (t.status === 'delivered' || t.status === 'cancelled') return false;
       } else if (currentView === 'offers') {
-        if (t.assignmentStatus !== 'pending_acceptance' || t.status === 'delivered' || t.status === 'cancelled') return false;
+        if (!isTaskPendingAcceptance(t)) return false;
       } else if (currentView === 'revision') {
         if (t.status !== 'revision_requested') return false;
       } else if (currentView === 'review') {
@@ -587,6 +611,14 @@ export default function FreelancerDashboard() {
       }
 
       return true;
+    });
+
+    // Sort: Pending offers at top so specialists never miss them
+    return list.sort((a, b) => {
+      const aPending = isTaskPendingAcceptance(a) ? 1 : 0;
+      const bPending = isTaskPendingAcceptance(b) ? 1 : 0;
+      if (aPending !== bPending) return bPending - aPending;
+      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     });
   };
 
@@ -705,12 +737,60 @@ export default function FreelancerDashboard() {
         ) : (
           <>
             {/* ════ TASKS LIST VIEWS ════ */}
+            {/* ════ TASKS LIST VIEWS ════ */}
             {!['ledger', 'profile'].includes(currentView) && (
               <>
                 <div className="fd-view-header">
                   <p>All Active Tasks</p>
                   <h1>My Tasks</h1>
                 </div>
+
+                {/* ⚡ PROMINENT GLOBAL NOTIFICATION BANNER IF OFFERS ARE PENDING */}
+                {pendingOffersCount > 0 && (
+                  <div style={{
+                    background: 'linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)',
+                    border: '2px solid #f59e0b',
+                    borderRadius: 10,
+                    padding: '14px 18px',
+                    marginBottom: 20,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 12,
+                    boxShadow: '0 4px 14px rgba(245, 158, 11, 0.15)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span style={{ fontSize: 28 }}>⚡</span>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span>ACTION REQUIRED: You have {pendingOffersCount} new project offer{pendingOffersCount > 1 ? 's' : ''} awaiting acceptance!</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
+                          Project assignments are allocated on a <b>First-Come, First-Served (FCFS)</b> basis. Click <b>"Accept Project"</b> on the card below to lock your assignment &amp; payout.
+                        </div>
+                      </div>
+                    </div>
+                    {currentView !== 'offers' && (
+                      <button
+                        type="button"
+                        onClick={() => setCurrentView('offers')}
+                        style={{
+                          background: '#f59e0b',
+                          color: '#000000',
+                          fontWeight: 800,
+                          fontSize: 12,
+                          padding: '8px 16px',
+                          borderRadius: 6,
+                          border: 'none',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Filter to Offers ({pendingOffersCount}) →
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {filteredTasks.length === 0 ? (
                   <div className="cd-empty">
@@ -723,90 +803,104 @@ export default function FreelancerDashboard() {
                     const cat = getCategoryFromService(task.serviceCategory);
                     const tech = getTechTags(cat);
                     const client = getClientName(task.id);
-                    const isPendingOffer = task.assignmentStatus === 'pending_acceptance';
+                    const isPendingOffer = isTaskPendingAcceptance(task);
+                    const isFcfs = task.isFcfsOffer || (task.candidateCount && task.candidateCount > 1);
+                    const countdown = getTimeRemaining(task.deadline);
+                    const clientPlacedDate = formatDateTime(task.createdAt);
+                    const assignedDate = formatDateTime(task.assignedAt || task.updatedAt || task.createdAt);
+
                     return (
                       <article className={`fd-task-card cat-${cat}${isPendingOffer ? ' offer-pending' : ''}`} key={task.id}>
                         {/* ⚡ PROMINENT ASSIGNMENT OFFER BANNER */}
-                        {isPendingOffer && (() => {
-                          const isFcfs = task.isFcfsOffer || (task.candidateCount && task.candidateCount > 1);
-                          const countdown = getTimeRemaining(task.deadline);
-                          return (
-                            <div className="fd-offer-banner" style={isFcfs ? { borderLeft: '4px solid #f59e0b', background: 'rgba(245, 158, 11, 0.08)' } : {}}>
-                              <div className="fd-offer-header">
-                                <div className="fd-offer-badge" style={isFcfs ? { background: '#f59e0b', color: '#000' } : {}}>
-                                  <span className="fd-pulse-dot" />
-                                  <span>
-                                    {isFcfs
-                                      ? `⚡ FIRST-COME, FIRST-SERVED (FCFS) OFFER · ${task.candidateCount || 2} SPECIALISTS INVITED`
-                                      : '⚡ NEW PROJECT OFFER — ACTION REQUIRED'}
-                                  </span>
-                                </div>
-                                <div className="fd-offer-payout">
-                                  <small>OFFERED SPECIALIST PAYOUT</small>
-                                  <b>₹{task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}</b>
-                                </div>
+                        {isPendingOffer && (
+                          <div className="fd-offer-banner" style={isFcfs ? { borderLeft: '4px solid #f59e0b', background: 'rgba(245, 158, 11, 0.08)' } : {}}>
+                            <div className="fd-offer-header">
+                              <div className="fd-offer-badge" style={isFcfs ? { background: '#f59e0b', color: '#000' } : {}}>
+                                <span className="fd-pulse-dot" />
+                                <span>
+                                  {isFcfs
+                                    ? `⚡ FIRST-COME, FIRST-SERVED (FCFS) OFFER · ${task.candidateCount || 2} SPECIALISTS INVITED`
+                                    : '⚡ NEW PROJECT OFFER — ACTION REQUIRED'}
+                                </span>
                               </div>
-
-                              {isFcfs ? (
-                                <div style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid #f59e0b', padding: '8px 12px', borderRadius: 6, margin: '8px 0', fontSize: 12.5, color: '#fef08a' }}>
-                                  <b>⚡ Fast Claim Opportunity:</b> This task was offered to <b>{task.candidateCount || 2} qualified specialists</b> simultaneously. The first specialist to click <b>"Accept Project"</b> claims the assignment exclusively.
-                                </div>
-                              ) : (
-                                <p className="fd-offer-text">
-                                  You have been matched by Workonova QA Leadership for this project based on your verified skillset. Review the brief below. Click <b>Accept Project</b> to start work and claim the payout, or <b>Decline Offer</b> to release the assignment back to the desk.
-                                </p>
-                              )}
-
-                              {/* Timeline and Deadline Bar in Offer */}
-                              {(task.deadline || task.durationValue) && (
-                                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '8px 0', padding: '6px 10px', background: 'rgba(15, 23, 42, 0.6)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                                  {task.durationValue && (
-                                    <span style={{ color: '#86efac', fontSize: 12, fontWeight: 700 }}>
-                                      ⏱️ Time Limit: {task.durationValue} {task.durationUnit || 'days'}
-                                    </span>
-                                  )}
-                                  {task.deadline && (
-                                    <span style={{ color: countdown?.expired ? '#f87171' : '#93c5fd', fontSize: 12, fontWeight: 700 }}>
-                                      📅 Due: {new Date(task.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                      {countdown && ` (${countdown.text})`}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
-
-                              {/* Project Notice in Offer */}
-                              {task.projectNotice && (
-                                <div style={{ background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.4)', borderRadius: 6, padding: '7px 12px', margin: '8px 0', fontSize: 12, color: '#c7d2fe' }}>
-                                  <b>📝 Client / QA Notice:</b> "{task.projectNotice}"
-                                </div>
-                              )}
-
-                              <div className="fd-offer-actions">
-                                <button
-                                  type="button"
-                                  className="fd-btn-accept"
-                                  disabled={processingOfferId === task.id}
-                                  onClick={() => handleAcceptTask(task.id)}
-                                  style={isFcfs ? { background: 'linear-gradient(135deg, #eab308, #ca8a04)', color: '#000', fontWeight: 900 } : {}}
-                                >
-                                  {processingOfferId === task.id
-                                    ? 'Claiming Task… ⏳'
-                                    : isFcfs
-                                      ? `⚡ Claim Task First & Lock ₹${task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}`
-                                      : `✓ Accept Project & Lock ₹${task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}`}
-                                </button>
-                                <button
-                                  type="button"
-                                  className="fd-btn-decline"
-                                  disabled={processingOfferId === task.id}
-                                  onClick={() => handleOpenDeclineModal(task)}
-                                >
-                                  ✕ Decline Offer
-                                </button>
+                              <div className="fd-offer-payout">
+                                <small>OFFERED SPECIALIST PAYOUT</small>
+                                <b>₹{task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}</b>
                               </div>
                             </div>
-                          );
-                        })()}
+
+                            {isFcfs ? (
+                              <div style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid #f59e0b', padding: '8px 12px', borderRadius: 6, margin: '8px 0', fontSize: 12.5, color: '#fef08a' }}>
+                                <b>⚡ Fast Claim Opportunity:</b> This task was offered to <b>{task.candidateCount || 2} qualified specialists</b> simultaneously. The first specialist to click <b>"Accept Project"</b> claims the assignment exclusively.
+                              </div>
+                            ) : (
+                              <p className="fd-offer-text">
+                                You have been matched by Workonova QA Leadership for this project based on your verified skillset. Review the brief below. Click <b>Accept Project</b> to start work and claim the payout, or <b>Decline Offer</b> to release the assignment back to the desk.
+                              </p>
+                            )}
+
+                            {/* Prominent Dates & Timeline Bar in Offer */}
+                            <div style={{
+                              display: 'grid',
+                              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                              gap: 8,
+                              margin: '10px 0',
+                              padding: '10px 12px',
+                              background: 'rgba(15, 23, 42, 0.75)',
+                              borderRadius: 8,
+                              border: '1px solid rgba(255, 255, 255, 0.12)'
+                            }}>
+                              <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                                📅 <b>Client Placed:</b> <span style={{ color: '#ffffff' }}>{clientPlacedDate || 'N/A'}</span>
+                              </div>
+                              <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                                🎯 <b>Assigned To You:</b> <span style={{ color: '#38bdf8' }}>{assignedDate || 'Just now'}</span>
+                              </div>
+                              {task.durationValue && (
+                                <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                                  ⏱️ <b>Time Limit:</b> <span style={{ color: '#86efac', fontWeight: 700 }}>{task.durationValue} {task.durationUnit || 'days'}</span>
+                                </div>
+                              )}
+                              {task.deadline && (
+                                <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                                  ⏳ <b>Target Deadline:</b> <span style={{ color: countdown?.expired ? '#f87171' : '#fbbf24', fontWeight: 700 }}>{formatDateTime(task.deadline)}</span>
+                                  {countdown && <span style={{ marginLeft: 4, color: countdown.expired ? '#f87171' : '#93c5fd', fontSize: 11 }}>({countdown.text})</span>}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Project Notice in Offer */}
+                            {task.projectNotice && (
+                              <div style={{ background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.4)', borderRadius: 6, padding: '8px 12px', margin: '8px 0', fontSize: 12, color: '#c7d2fe' }}>
+                                <b>📝 Client Notice / Review Terms:</b> "{task.projectNotice}"
+                              </div>
+                            )}
+
+                            <div className="fd-offer-actions" style={{ marginTop: 12 }}>
+                              <button
+                                type="button"
+                                className="fd-btn-accept"
+                                disabled={processingOfferId === task.id}
+                                onClick={() => handleAcceptTask(task.id)}
+                                style={isFcfs ? { background: 'linear-gradient(135deg, #eab308, #ca8a04)', color: '#000', fontWeight: 900 } : {}}
+                              >
+                                {processingOfferId === task.id
+                                  ? 'Claiming Task… ⏳'
+                                  : isFcfs
+                                    ? `⚡ Claim Task First & Lock ₹${task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}`
+                                    : `✓ Accept Project & Lock ₹${task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}`}
+                              </button>
+                              <button
+                                type="button"
+                                className="fd-btn-decline"
+                                disabled={processingOfferId === task.id}
+                                onClick={() => handleOpenDeclineModal(task)}
+                              >
+                                ✕ Decline Offer
+                              </button>
+                            </div>
+                          </div>
+                        )}
 
                         <div className="fd-card-head">
                           <div className="fd-card-tags">
@@ -839,28 +933,38 @@ export default function FreelancerDashboard() {
                             {tech.map(t => <span className="fd-tech-pill" key={t}>{t}</span>)}
                           </div>
 
-                          {/* Active Task Timeline & Deadline Bar */}
-                          {!isPendingOffer && (task.deadline || task.durationValue) && (() => {
-                            const countdown = getTimeRemaining(task.deadline);
-                            return (
-                              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '10px 0', padding: '6px 12px', background: 'rgba(15, 23, 42, 0.7)', borderRadius: 6, border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                                {task.durationValue && (
-                                  <span style={{ color: '#86efac', fontSize: 12, fontWeight: 700 }}>
-                                    ⏱️ Time Limit: {task.durationValue} {task.durationUnit || 'days'}
-                                  </span>
-                                )}
-                                {task.deadline && (
-                                  <span style={{ color: countdown?.expired ? '#f87171' : '#93c5fd', fontSize: 12, fontWeight: 700 }}>
-                                    📅 Deadline: {new Date(task.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                                    {countdown && ` (${countdown.text})`}
-                                  </span>
-                                )}
+                          {/* Active Task Dates, Timeline & Deadline Bar */}
+                          <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                            gap: 8,
+                            margin: '10px 0',
+                            padding: '8px 12px',
+                            background: 'rgba(15, 23, 42, 0.7)',
+                            borderRadius: 6,
+                            border: '1px solid rgba(255, 255, 255, 0.1)'
+                          }}>
+                            <div style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                              📅 <b>Client Order Placed:</b> <span style={{ color: '#f8fafc' }}>{clientPlacedDate || 'N/A'}</span>
+                            </div>
+                            <div style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                              🎯 <b>Assigned On:</b> <span style={{ color: '#38bdf8' }}>{assignedDate || 'Just now'}</span>
+                            </div>
+                            {task.durationValue && (
+                              <div style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                                ⏱️ <b>Time Limit:</b> <span style={{ color: '#86efac', fontWeight: 700 }}>{task.durationValue} {task.durationUnit || 'days'}</span>
                               </div>
-                            );
-                          })()}
+                            )}
+                            {task.deadline && (
+                              <div style={{ fontSize: 11.5, color: '#94a3b8' }}>
+                                ⏳ <b>Deadline:</b> <span style={{ color: countdown?.expired ? '#f87171' : '#93c5fd', fontWeight: 700 }}>{formatDateTime(task.deadline)}</span>
+                                {countdown && <span style={{ marginLeft: 4, color: countdown.expired ? '#f87171' : '#a5b4fc', fontSize: 11 }}>({countdown.text})</span>}
+                              </div>
+                            )}
+                          </div>
 
                           {/* Active Task Project Notice */}
-                          {!isPendingOffer && task.projectNotice && (
+                          {task.projectNotice && (
                             <div style={{ background: 'rgba(99, 102, 241, 0.12)', border: '1px solid rgba(99, 102, 241, 0.35)', borderRadius: 6, padding: '7px 12px', margin: '8px 0', fontSize: 12, color: '#c7d2fe' }}>
                               <b>📝 Client Notice &amp; Review Guidelines:</b> "{task.projectNotice}"
                             </div>
