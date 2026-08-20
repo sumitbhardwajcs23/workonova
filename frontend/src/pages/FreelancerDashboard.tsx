@@ -104,6 +104,17 @@ function getInitials(name: string) {
   return parts[0].slice(0, 2).toUpperCase();
 }
 
+const ALL_SERVICES = [
+  'Website Development',
+  'Graphic Designing',
+  'Video Editing',
+  '3D Design & Modeling',
+  'VFX & Animation',
+  'AI Services',
+  'Software & App Development',
+  'Digital Marketing'
+];
+
 export default function FreelancerDashboard() {
   const user = getUser();
   const token = getToken();
@@ -118,44 +129,12 @@ export default function FreelancerDashboard() {
     setTimeout(() => setSuccess(''), 4000);
   };
 
-  // Project Offer Acceptance / Decline States
-  const [processingOfferId, setProcessingOfferId] = useState<number | null>(null);
-  const [declineModalTask, setDeclineModalTask] = useState<Task | null>(null);
-  const [declineReason, setDeclineReason] = useState('Schedule / Bandwidth Full');
-  const [declineCustomNote, setDeclineCustomNote] = useState('');
-  const [declineSubmitting, setDeclineSubmitting] = useState(false);
-
-  const DECLINE_REASONS = [
-    { id: 'bandwidth', label: 'Schedule / Bandwidth Full', icon: '🗓️' },
-    { id: 'domain', label: 'Outside Technical Domain', icon: '🛠️' },
-    { id: 'timeline', label: 'Timeline Too Tight', icon: '⏳' },
-    { id: 'payout', label: 'Budget / Payout Mismatch', icon: '💵' },
-    { id: 'other', label: 'Other Specific Reason', icon: '📝' },
-  ];
-
-  // Submit Modal state
-  const [submittingTask, setSubmittingTask] = useState<Task | null>(null);
-  const [deliveryLink, setDeliveryLink] = useState('');
-
-  // 50% Midpoint Modal State
-  const [midpointModalTask, setMidpointModalTask] = useState<Task | null>(null);
-  const [midpointLink, setMidpointLink] = useState('');
-  const [midpointNotes, setMidpointNotes] = useState('');
-  const [midpointSubmitting, setMidpointSubmitting] = useState(false);
-
-  // Profile & Bank Details State
-  const [profile, setProfile] = useState<{ name?: string; email?: string; phone?: string; services: string[]; portfolioLink?: string; bankDetails?: any } | null>(null);
-  const [editName, setEditName] = useState(user?.name || '');
-  const [editPhone, setEditPhone] = useState((user as any)?.phone || '');
-  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  // Profile States
+  const [profile, setProfile] = useState<any>(null);
   const [profileSaving, setProfileSaving] = useState(false);
-
-  // Email Change OTP State
-  const [emailChangeModalOpen, setEmailChangeModalOpen] = useState(false);
-  const [newEmailInput, setNewEmailInput] = useState('');
-  const [emailOtpInput, setEmailOtpInput] = useState('');
-  const [emailOtpSent, setEmailOtpSent] = useState(false);
-
+  const [editName, setEditName] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [bankForm, setBankForm] = useState({
     accountName: '',
     accountNumber: '',
@@ -165,97 +144,34 @@ export default function FreelancerDashboard() {
     portfolioLink: '',
   });
 
-  const ALL_SERVICES = [
-    'Graphic Designing', 'Video Editing', '3D Design & Modeling', 'VFX',
-    'Animation', 'Digital Marketing', 'Website Development', 'Software Development',
-    'App Development', 'AI Services', 'IT Services', 'Cyber Security'
-  ];
-
   const handleToggleService = (service: string) => {
-    if (selectedServices.includes(service)) {
-      setSelectedServices(selectedServices.filter(s => s !== service));
-    } else {
-      if (selectedServices.length >= 4) {
-        triggerToast('⚠️ Maximum 4 vetted services allowed.');
-        return;
+    setSelectedServices(prev => {
+      if (prev.includes(service)) {
+        return prev.filter(s => s !== service);
       }
-      setSelectedServices([...selectedServices, service]);
-    }
-  };
-
-  // Accept Project Offer Handler (with FCFS Conflict detection)
-  const handleAcceptTask = async (taskId: number) => {
-    setProcessingOfferId(taskId);
-    try {
-      const res = await fetch(`${API_BASE}/api/freelancer/tasks/${taskId}/accept`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        }
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        if (res.status === 409 || (data.error && data.error.toLowerCase().includes('claimed'))) {
-          triggerToast(`⚡ Task Claimed: Another invited specialist claimed this project first (First-Come, First-Served).`);
-          fetchTasks(true);
-          return;
-        }
-        throw new Error(data.error || 'Failed to accept project assignment');
+      if (prev.length >= 4) {
+        triggerToast('⚠️ Maximum 4 skills can be selected.');
+        return prev;
       }
-      
-      setTasksList(prev => prev.map(t => t.id === taskId ? {
-        ...t,
-        assignmentStatus: 'accepted',
-        acceptedAt: new Date().toISOString(),
-        status: 'assigned'
-      } : t));
-      triggerToast(`🎉 Project #WN-${taskId} officially accepted! Production is now active.`);
-      fetchTasks(true);
-    } catch (err: any) {
-      triggerToast(`❌ Error: ${err.message}`);
-    } finally {
-      setProcessingOfferId(null);
-    }
+      return [...prev, service];
+    });
   };
 
-  // Open Decline Modal
-  const handleOpenDeclineModal = (task: Task) => {
-    setDeclineModalTask(task);
-    setDeclineReason('Schedule / Bandwidth Full');
-    setDeclineCustomNote('');
-  };
+  // Midpoint submission states
+  const [midpointModalTask, setMidpointModalTask] = useState<Task | null>(null);
+  const [midpointLink, setMidpointLink] = useState('');
+  const [midpointNotes, setMidpointNotes] = useState('');
+  const [midpointSubmitting, setMidpointSubmitting] = useState(false);
 
-  // Submit Decline Handler
-  const handleSubmitDecline = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!declineModalTask) return;
-    setDeclineSubmitting(true);
-    try {
-      const res = await fetch(`${API_BASE}/api/freelancer/tasks/${declineModalTask.id}/reject`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          reason: declineReason,
-          customNote: declineCustomNote.trim()
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to decline project assignment');
+  // Email change modal states
+  const [emailChangeModalOpen, setEmailChangeModalOpen] = useState(false);
+  const [newEmailInput, setNewEmailInput] = useState('');
+  const [emailOtpInput, setEmailOtpInput] = useState('');
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
 
-      setTasksList(prev => prev.filter(t => t.id !== declineModalTask.id));
-      triggerToast(`⚠️ Project #WN-${declineModalTask.id} declined. Order returned to Admin Desk.`);
-      setDeclineModalTask(null);
-      fetchTasks(true);
-    } catch (err: any) {
-      triggerToast(`❌ Error: ${err.message}`);
-    } finally {
-      setDeclineSubmitting(false);
-    }
-  };
+  // Submit Modal state
+  const [submittingTask, setSubmittingTask] = useState<Task | null>(null);
+  const [deliveryLink, setDeliveryLink] = useState('');
 
   // Chat State
   const [activeChatTask, setActiveChatTask] = useState<Task | null>(null);
@@ -563,18 +479,7 @@ export default function FreelancerDashboard() {
   };
 
   // ── COUNTS & FILTERING ────────────────────────────────────────
-  const isTaskPendingAcceptance = (t: Task): boolean => {
-    if (t.status === 'delivered' || t.status === 'cancelled') return false;
-    if (t.assignmentStatus === 'accepted') return false;
-    if (t.assignmentStatus === 'pending_acceptance' || t.assignmentStatus === 'pending') return true;
-    if (t.isFcfsOffer) return true;
-    if (t.status === 'assigned' && !t.acceptedAt) return true;
-    return false;
-  };
-
   const activeTasks = tasksList.filter(t => !['delivered', 'cancelled'].includes(t.status));
-  const pendingOffers = tasksList.filter(isTaskPendingAcceptance);
-  const pendingOffersCount = pendingOffers.length;
 
   const getCategoryFromService = (service: string): string => {
     const s = service.toLowerCase();
@@ -590,8 +495,6 @@ export default function FreelancerDashboard() {
       // Status/workflow filter
       if (currentView === 'all') {
         if (t.status === 'delivered' || t.status === 'cancelled') return false;
-      } else if (currentView === 'offers') {
-        if (!isTaskPendingAcceptance(t)) return false;
       } else if (currentView === 'revision') {
         if (t.status !== 'revision_requested') return false;
       } else if (currentView === 'review') {
@@ -613,13 +516,7 @@ export default function FreelancerDashboard() {
       return true;
     });
 
-    // Sort: Pending offers at top so specialists never miss them
-    return list.sort((a, b) => {
-      const aPending = isTaskPendingAcceptance(a) ? 1 : 0;
-      const bPending = isTaskPendingAcceptance(b) ? 1 : 0;
-      if (aPending !== bPending) return bPending - aPending;
-      return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-    });
+    return list.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
   };
 
   const catCount = (catKey: string) => {
@@ -649,11 +546,6 @@ export default function FreelancerDashboard() {
           <button className={`fd-nav-item${currentView === 'all' ? ' active' : ''}`} onClick={() => { setCurrentView('all'); setSidebarOpen(false); }}>
             <span className="fd-nav-icon">📁</span><span>All Active Tasks</span>
             {activeTasks.length > 0 && <span className="fd-nav-badge">{activeTasks.length}</span>}
-          </button>
-
-          <button className={`fd-nav-item${currentView === 'offers' ? ' active' : ''}`} onClick={() => { setCurrentView('offers'); setSidebarOpen(false); }}>
-            <span className="fd-nav-icon">⚡</span><span>New Offers</span>
-            {pendingOffersCount > 0 && <span className="fd-nav-badge offer-pulse">{pendingOffersCount} NEW</span>}
           </button>
           
           <button className={`fd-nav-item${currentView === 'cat-web' ? ' active' : ''}`} onClick={() => { setCurrentView('cat-web'); setSidebarOpen(false); }}>
@@ -737,60 +629,12 @@ export default function FreelancerDashboard() {
         ) : (
           <>
             {/* ════ TASKS LIST VIEWS ════ */}
-            {/* ════ TASKS LIST VIEWS ════ */}
             {!['ledger', 'profile'].includes(currentView) && (
               <>
                 <div className="fd-view-header">
                   <p>All Active Tasks</p>
                   <h1>My Tasks</h1>
                 </div>
-
-                {/* ⚡ PROMINENT GLOBAL NOTIFICATION BANNER IF OFFERS ARE PENDING */}
-                {pendingOffersCount > 0 && (
-                  <div style={{
-                    background: 'linear-gradient(135deg, #fef3c7 0%, #fffbeb 100%)',
-                    border: '2px solid #f59e0b',
-                    borderRadius: 10,
-                    padding: '14px 18px',
-                    marginBottom: 20,
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: 12,
-                    boxShadow: '0 4px 14px rgba(245, 158, 11, 0.15)'
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                      <span style={{ fontSize: 28 }}>⚡</span>
-                      <div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: '#92400e', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span>ACTION REQUIRED: You have {pendingOffersCount} new project offer{pendingOffersCount > 1 ? 's' : ''} awaiting acceptance!</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: '#b45309', marginTop: 2 }}>
-                          Project assignments are allocated on a <b>First-Come, First-Served (FCFS)</b> basis. Click <b>"Accept Project"</b> on the card below to lock your assignment &amp; payout.
-                        </div>
-                      </div>
-                    </div>
-                    {currentView !== 'offers' && (
-                      <button
-                        type="button"
-                        onClick={() => setCurrentView('offers')}
-                        style={{
-                          background: '#f59e0b',
-                          color: '#000000',
-                          fontWeight: 800,
-                          fontSize: 12,
-                          padding: '8px 16px',
-                          borderRadius: 6,
-                          border: 'none',
-                          cursor: 'pointer',
-                        }}
-                      >
-                        Filter to Offers ({pendingOffersCount}) →
-                      </button>
-                    )}
-                  </div>
-                )}
 
                 {filteredTasks.length === 0 ? (
                   <div className="cd-empty">
@@ -803,123 +647,19 @@ export default function FreelancerDashboard() {
                     const cat = getCategoryFromService(task.serviceCategory);
                     const tech = getTechTags(cat);
                     const client = getClientName(task.id);
-                    const isPendingOffer = isTaskPendingAcceptance(task);
-                    const isFcfs = task.isFcfsOffer || (task.candidateCount && task.candidateCount > 1);
                     const countdown = getTimeRemaining(task.deadline);
                     const clientPlacedDate = formatDateTime(task.createdAt);
                     const assignedDate = formatDateTime(task.assignedAt || task.updatedAt || task.createdAt);
 
                     return (
-                      <article className={`fd-task-card cat-${cat}${isPendingOffer ? ' offer-pending' : ''}`} key={task.id}>
-                        {/* ⚡ PROMINENT ASSIGNMENT OFFER BANNER */}
-                        {isPendingOffer && (
-                          <div className="fd-offer-banner" style={isFcfs ? { borderLeft: '4px solid #f59e0b', background: 'rgba(245, 158, 11, 0.08)' } : {}}>
-                            <div className="fd-offer-header">
-                              <div className="fd-offer-badge" style={isFcfs ? { background: '#f59e0b', color: '#000' } : {}}>
-                                <span className="fd-pulse-dot" />
-                                <span>
-                                  {isFcfs
-                                    ? `⚡ FIRST-COME, FIRST-SERVED (FCFS) OFFER · ${task.candidateCount || 2} SPECIALISTS INVITED`
-                                    : '⚡ NEW PROJECT OFFER — ACTION REQUIRED'}
-                                </span>
-                              </div>
-                              <div className="fd-offer-payout">
-                                <small>OFFERED SPECIALIST PAYOUT</small>
-                                <b>₹{task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}</b>
-                              </div>
-                            </div>
-
-                            {isFcfs ? (
-                              <div style={{ background: 'rgba(245, 158, 11, 0.15)', border: '1px solid #f59e0b', padding: '8px 12px', borderRadius: 6, margin: '8px 0', fontSize: 12.5, color: '#fef08a' }}>
-                                <b>⚡ Fast Claim Opportunity:</b> This task was offered to <b>{task.candidateCount || 2} qualified specialists</b> simultaneously. The first specialist to click <b>"Accept Project"</b> claims the assignment exclusively.
-                              </div>
-                            ) : (
-                              <p className="fd-offer-text">
-                                You have been matched by Workonova QA Leadership for this project based on your verified skillset. Review the brief below. Click <b>Accept Project</b> to start work and claim the payout, or <b>Decline Offer</b> to release the assignment back to the desk.
-                              </p>
-                            )}
-
-                            {/* Prominent Dates & Timeline Bar in Offer */}
-                            <div style={{
-                              display: 'grid',
-                              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-                              gap: 8,
-                              margin: '10px 0',
-                              padding: '10px 12px',
-                              background: 'rgba(15, 23, 42, 0.75)',
-                              borderRadius: 8,
-                              border: '1px solid rgba(255, 255, 255, 0.12)'
-                            }}>
-                              <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                                📅 <b>Client Placed:</b> <span style={{ color: '#ffffff' }}>{clientPlacedDate || 'N/A'}</span>
-                              </div>
-                              <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                                🎯 <b>Assigned To You:</b> <span style={{ color: '#38bdf8' }}>{assignedDate || 'Just now'}</span>
-                              </div>
-                              {task.durationValue && (
-                                <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                                  ⏱️ <b>Time Limit:</b> <span style={{ color: '#86efac', fontWeight: 700 }}>{task.durationValue} {task.durationUnit || 'days'}</span>
-                                </div>
-                              )}
-                              {task.deadline && (
-                                <div style={{ fontSize: 12, color: '#94a3b8' }}>
-                                  ⏳ <b>Target Deadline:</b> <span style={{ color: countdown?.expired ? '#f87171' : '#fbbf24', fontWeight: 700 }}>{formatDateTime(task.deadline)}</span>
-                                  {countdown && <span style={{ marginLeft: 4, color: countdown.expired ? '#f87171' : '#93c5fd', fontSize: 11 }}>({countdown.text})</span>}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Project Notice in Offer */}
-                            {task.projectNotice && (
-                              <div style={{ background: 'rgba(99, 102, 241, 0.15)', border: '1px solid rgba(99, 102, 241, 0.4)', borderRadius: 6, padding: '8px 12px', margin: '8px 0', fontSize: 12, color: '#c7d2fe' }}>
-                                <b>📝 Client Notice / Review Terms:</b> "{task.projectNotice}"
-                              </div>
-                            )}
-
-                            <div className="fd-offer-actions" style={{ marginTop: 12 }}>
-                              <button
-                                type="button"
-                                className="fd-btn-accept"
-                                disabled={processingOfferId === task.id}
-                                onClick={() => handleAcceptTask(task.id)}
-                                style={isFcfs ? { background: 'linear-gradient(135deg, #eab308, #ca8a04)', color: '#000', fontWeight: 900 } : {}}
-                              >
-                                {processingOfferId === task.id
-                                  ? 'Claiming Task… ⏳'
-                                  : isFcfs
-                                    ? `⚡ Claim Task First & Lock ₹${task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}`
-                                    : `✓ Accept Project & Lock ₹${task.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}`}
-                              </button>
-                              <button
-                                type="button"
-                                className="fd-btn-decline"
-                                disabled={processingOfferId === task.id}
-                                onClick={() => handleOpenDeclineModal(task)}
-                              >
-                                ✕ Decline Offer
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
+                      <article className={`fd-task-card cat-${cat}`} key={task.id}>
                         <div className="fd-card-head">
                           <div className="fd-card-tags">
                             <span className={`fd-cat-pill ${cat}`}>{task.serviceCategory}</span>
                             <span className="fd-order-id">ORDER #WN-2026-{task.id}</span>
-                            {isPendingOffer && (
-                              <span style={{ fontSize: 10, fontWeight: 800, color: '#f59e0b', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid #f59e0b', padding: '2px 8px', borderRadius: 4, textTransform: 'uppercase' }}>
-                                {task.isFcfsOffer ? '⚡ FCFS INVITATION' : '⚡ ACTION REQUIRED'}
-                              </span>
-                            )}
                           </div>
                           <div className="fd-card-right">
-                            {isPendingOffer ? (
-                              <span style={{ fontSize: 11, fontWeight: 800, color: '#fbbf24', background: 'rgba(251, 191, 36, 0.15)', padding: '3px 8px', borderRadius: 4, border: '1px solid #f59e0b', textTransform: 'uppercase' }}>
-                                ⏳ PENDING ACCEPTANCE
-                              </span>
-                            ) : (
-                              <span className={`fd-status-pill ${task.status}`}>{task.status.replace('_', ' ').toUpperCase()}</span>
-                            )}
+                            <span className={`fd-status-pill ${task.status}`}>{task.status.replace('_', ' ').toUpperCase()}</span>
                             <span className="fd-assigned">Payout: <b>₹{task.freelancerPayoutAmount?.toLocaleString() || 0}</b></span>
                           </div>
                         </div>
@@ -1024,106 +764,80 @@ export default function FreelancerDashboard() {
                         </div>
 
                         <div className="fd-card-actions">
-                          {isPendingOffer ? (
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', width: '100%' }}>
-                              <button
-                                className="fd-action-btn primary"
-                                style={{ background: '#56c41a', borderColor: '#389e0d', color: '#ffffff', fontWeight: 'bold' }}
-                                disabled={processingOfferId === task.id}
-                                onClick={() => handleAcceptTask(task.id)}
-                              >
-                                {processingOfferId === task.id ? 'Accepting… ⏳' : '✓ Accept Project Assignment'}
-                              </button>
-                              <button
-                                className="fd-action-btn"
-                                style={{ color: '#ef4444', borderColor: 'rgba(239, 68, 68, 0.4)' }}
-                                disabled={processingOfferId === task.id}
-                                onClick={() => handleOpenDeclineModal(task)}
-                              >
-                                ✕ Decline Assignment
-                              </button>
-                              <button className="fd-action-btn" onClick={() => setActiveChatTask(task)}>
-                                💬 Ask Clarification
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <button className="fd-action-btn" onClick={() => setActiveChatTask(task)}>
-                                💬 Ask Clarification
-                              </button>
+                          <button className="fd-action-btn" onClick={() => setActiveChatTask(task)}>
+                            💬 Ask Clarification
+                          </button>
 
-                              {/* 50% Midpoint Submission Trigger */}
-                              {['assigned', 'paid_50'].includes(task.status) && (
-                                <button
-                                  className="fd-action-btn primary"
-                                  style={{ background: '#6366f1', borderColor: '#4f46e5' }}
-                                  onClick={() => {
-                                    setMidpointModalTask(task);
-                                    setMidpointLink('');
-                                    setMidpointNotes('');
-                                  }}
-                                >
-                                  📤 Submit 50% Midpoint Deliverable →
-                                </button>
-                              )}
-
-                              {task.status === 'midpoint_submitted' && (
-                                <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, padding: '6px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: 6, border: '1px solid #f59e0b' }}>
-                                  ⏳ 50% Midpoint Under Client Review
-                                </span>
-                              )}
-
-                              {/* 100% Final Deliverables Trigger */}
-                              {['midpoint_approved', 'paid_75', 'revision_requested'].includes(task.status) && (
-                                <button
-                                  className="fd-action-btn primary"
-                                  style={{ background: '#10b981', borderColor: '#059669' }}
-                                  onClick={() => setSubmittingTask(task)}
-                                >
-                                  🚀 Deliver 100% Final Work →
-                                </button>
-                              )}
-
-                              {['submitted', 'qa_approved'].includes(task.status) && (
-                                <span style={{ fontSize: 12, color: '#818cf8', fontWeight: 600, padding: '6px 12px', background: 'rgba(129, 140, 248, 0.1)', borderRadius: 6, border: '1px solid #818cf8' }}>
-                                  ⏳ Final Deliverables Under QA &amp; Client Review
-                                </span>
-                              )}
-
-                              {task.status === 'client_approved' && (
-                                <span style={{ fontSize: 12, color: '#34d399', fontWeight: 600, padding: '6px 12px', background: 'rgba(52, 211, 153, 0.1)', borderRadius: 6, border: '1px solid #34d399' }}>
-                                  🛡️ Client Approved · Payout Regulated by Admin
-                                </span>
-                              )}
-
-                              {['completed', 'delivered'].includes(task.status) && (
-                                <button
-                                  className="fd-action-btn"
-                                  style={{ background: '#064e3b', color: '#34d399', borderColor: '#10b981', fontWeight: 'bold' }}
-                                  onClick={() => {
-                                    downloadFreelancerPayoutVoucherPDF({
-                                      orderId: task.id,
-                                      freelancerName: profile?.name || user?.name || 'Vetted Specialist',
-                                      freelancerEmail: profile?.email || user?.email || 'specialist@workonova.com',
-                                      serviceCategory: task.serviceCategory,
-                                      tier: task.tier || 'STANDARD',
-                                      payoutAmount: task.freelancerPayoutAmount || 10000,
-                                      payoutStatus: task.payoutStatus || 'payout_released',
-                                      payoutReleasedAt: task.payoutReleasedAt,
-                                      date: new Date(task.updatedAt || task.createdAt).toLocaleDateString('en-IN'),
-                                    });
-                                    triggerToast(`📥 Downloaded Payout Voucher #WN-PAYOUT-WN-${task.id}.pdf`);
-                                  }}
-                                >
-                                  📄 Download Payout PDF Voucher
-                                </button>
-                              )}
-
-                              <button className="fd-action-btn" onClick={() => triggerToast('📅 Extension request details sent to QA Admin.')}>
-                                📅 Request Extension
-                              </button>
-                            </>
+                          {/* 50% Midpoint Submission Trigger */}
+                          {['assigned', 'paid_50'].includes(task.status) && (
+                            <button
+                              className="fd-action-btn primary"
+                              style={{ background: '#6366f1', borderColor: '#4f46e5' }}
+                              onClick={() => {
+                                setMidpointModalTask(task);
+                                setMidpointLink('');
+                                setMidpointNotes('');
+                              }}
+                            >
+                              📤 Submit 50% Midpoint Deliverable →
+                            </button>
                           )}
+
+                          {task.status === 'midpoint_submitted' && (
+                            <span style={{ fontSize: 12, color: '#f59e0b', fontWeight: 600, padding: '6px 12px', background: 'rgba(245, 158, 11, 0.1)', borderRadius: 6, border: '1px solid #f59e0b' }}>
+                              ⏳ 50% Midpoint Under Client Review
+                            </span>
+                          )}
+
+                          {/* 100% Final Deliverables Trigger */}
+                          {['midpoint_approved', 'paid_75', 'revision_requested'].includes(task.status) && (
+                            <button
+                              className="fd-action-btn primary"
+                              style={{ background: '#10b981', borderColor: '#059669' }}
+                              onClick={() => setSubmittingTask(task)}
+                            >
+                              🚀 Deliver 100% Final Work →
+                            </button>
+                          )}
+
+                          {['submitted', 'qa_approved'].includes(task.status) && (
+                            <span style={{ fontSize: 12, color: '#818cf8', fontWeight: 600, padding: '6px 12px', background: 'rgba(129, 140, 248, 0.1)', borderRadius: 6, border: '1px solid #818cf8' }}>
+                              ⏳ Final Deliverables Under QA &amp; Client Review
+                            </span>
+                          )}
+
+                          {task.status === 'client_approved' && (
+                            <span style={{ fontSize: 12, color: '#34d399', fontWeight: 600, padding: '6px 12px', background: 'rgba(52, 211, 153, 0.1)', borderRadius: 6, border: '1px solid #34d399' }}>
+                              🛡️ Client Approved · Payout Regulated by Admin
+                            </span>
+                          )}
+
+                          {['completed', 'delivered'].includes(task.status) && (
+                            <button
+                              className="fd-action-btn"
+                              style={{ background: '#064e3b', color: '#34d399', borderColor: '#10b981', fontWeight: 'bold' }}
+                              onClick={() => {
+                                downloadFreelancerPayoutVoucherPDF({
+                                  orderId: task.id,
+                                  freelancerName: profile?.name || user?.name || 'Vetted Specialist',
+                                  freelancerEmail: profile?.email || user?.email || 'specialist@workonova.com',
+                                  serviceCategory: task.serviceCategory,
+                                  tier: task.tier || 'STANDARD',
+                                  payoutAmount: task.freelancerPayoutAmount || 10000,
+                                  payoutStatus: task.payoutStatus || 'payout_released',
+                                  payoutReleasedAt: task.payoutReleasedAt,
+                                  date: new Date(task.updatedAt || task.createdAt).toLocaleDateString('en-IN'),
+                                });
+                                triggerToast(`📥 Downloaded Payout Voucher #WN-PAYOUT-WN-${task.id}.pdf`);
+                              }}
+                            >
+                              📄 Download Payout PDF Voucher
+                            </button>
+                          )}
+
+                          <button className="fd-action-btn" onClick={() => triggerToast('📅 Extension request details sent to QA Admin.')}>
+                            📅 Request Extension
+                          </button>
                         </div>
                       </article>
                     );
@@ -1567,73 +1281,6 @@ export default function FreelancerDashboard() {
                   </div>
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* DECLINE PROJECT OFFER MODAL */}
-      {declineModalTask && (
-        <div className="fd-modal-overlay" onClick={() => setDeclineModalTask(null)}>
-          <div className="fd-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 520 }}>
-            <div className="fd-modal-header" style={{ borderBottom: '1px solid rgba(239, 68, 68, 0.25)' }}>
-              <h2 style={{ color: '#f87171' }}>✕ Decline Project Offer — #{declineModalTask.id}</h2>
-              <button className="fd-modal-close" onClick={() => setDeclineModalTask(null)}>×</button>
-            </div>
-            <div className="fd-modal-body">
-              <div style={{ background: '#182216', border: '1px solid #283a24', padding: '12px 14px', borderRadius: 8, marginBottom: 16 }}>
-                <div style={{ fontSize: 13.5, fontWeight: 700, color: '#ffffff', marginBottom: 2 }}>{declineModalTask.serviceCategory}</div>
-                <div style={{ fontSize: 12, color: '#8da888' }}>
-                  Offered Payout: <b style={{ color: '#3ddc17' }}>₹{declineModalTask.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}</b> · Client: {getClientName(declineModalTask.id)}
-                </div>
-              </div>
-
-              <p style={{ fontSize: 12.5, color: '#cbd5e1', lineHeight: 1.5, marginBottom: 14 }}>
-                Please select your reason for declining. This task will immediately be returned to the Admin Assign Desk with <b>zero penalty</b> to your specialist rating.
-              </p>
-
-              <form id="declineForm" onSubmit={handleSubmitDecline}>
-                <div className="fd-form-row">
-                  <label className="fd-form-label">Primary Reason</label>
-                  <div className="fd-reason-chips">
-                    {DECLINE_REASONS.map(r => (
-                      <div
-                        key={r.id}
-                        className={`fd-reason-chip${declineReason === r.label ? ' selected' : ''}`}
-                        onClick={() => setDeclineReason(r.label)}
-                      >
-                        <span>{r.icon}</span>
-                        <span>{r.label}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="fd-form-row">
-                  <label className="fd-form-label">Additional Comments / Context for QA Team (Optional)</label>
-                  <textarea
-                    className="fd-form-input"
-                    rows={3}
-                    placeholder="e.g. Currently dedicated to another active project milestone until next Monday..."
-                    value={declineCustomNote}
-                    onChange={e => setDeclineCustomNote(e.target.value)}
-                  />
-                </div>
-              </form>
-            </div>
-            <div className="fd-modal-footer">
-              <button className="fd-btn-secondary" type="button" onClick={() => setDeclineModalTask(null)}>
-                Keep Offer
-              </button>
-              <button
-                className="fd-btn-primary"
-                form="declineForm"
-                type="submit"
-                style={{ background: 'linear-gradient(135deg, #ef4444 0%, #b91c1c 100%)', borderColor: '#ef4444' }}
-                disabled={declineSubmitting}
-              >
-                {declineSubmitting ? 'Declining… ⏳' : '✕ Confirm & Release Project'}
-              </button>
             </div>
           </div>
         </div>

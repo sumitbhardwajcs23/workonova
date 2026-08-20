@@ -53,38 +53,8 @@ freelancerApp.get('/tasks', async (c) => {
     }).from(orders);
 
     const relevantTasks = allOrders.filter(ord => {
-      // 1. Direct assignment accepted by or specifically assigned to this user
-      if (ord.freelancerId === user.id) return true;
-
-      // 2. Candidate in multi-specialist FCFS pool
-      if (ord.assignedFreelancerIds) {
-        try {
-          const parsed = JSON.parse(ord.assignedFreelancerIds);
-          if (Array.isArray(parsed) && parsed.includes(user.id)) {
-            // If already claimed by another user, do not show in active roster
-            if (ord.assignmentStatus === 'accepted' && ord.freelancerId && ord.freelancerId !== user.id) {
-              return false;
-            }
-            return true;
-          }
-        } catch {}
-      }
-
-      return false;
-    }).map(task => {
-      let candidateCount = 1;
-      try {
-        if (task.assignedFreelancerIds) {
-          const parsed = JSON.parse(task.assignedFreelancerIds);
-          if (Array.isArray(parsed)) candidateCount = parsed.length;
-        }
-      } catch {}
-
-      return {
-        ...task,
-        isFcfsOffer: candidateCount > 1 && task.assignmentStatus !== 'accepted',
-        candidateCount,
-      };
+      // Direct assignment to this specialist
+      return ord.freelancerId === user.id;
     });
 
     return c.json({ data: relevantTasks });

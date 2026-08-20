@@ -216,18 +216,17 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
     }
 
     const assignedIdsJson = JSON.stringify(flRecords.map(f => f.id));
-    const isMultiCandidate = flRecords.length > 1;
 
     const updatePayload: any = {
-      freelancerId: isMultiCandidate ? null : flRecords[0].id,
+      freelancerId: flRecords[0].id,
       assignedFreelancerIds: assignedIdsJson,
       freelancerPayoutAmount: payoutAmount,
-      assignmentStatus: 'pending_acceptance',
+      assignmentStatus: 'accepted',
       assignedAt: new Date().toISOString(),
+      acceptedAt: new Date().toISOString(),
       declineReason: null,
       declinedBy: null,
       declinedAt: null,
-      acceptedAt: null,
       status: 'assigned',
       updatedAt: new Date().toISOString(),
     };
@@ -243,10 +242,7 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
       return c.json({ error: 'Order not found.' }, 404);
     }
 
-    const specialistNames = flRecords.map(f => f.name).join(', ');
-    const systemNotice = isMultiCandidate
-      ? `[SYSTEM] ⚡ Task offered to ${flRecords.length} specialists on a FIRST-COME FIRST-SERVE basis (${specialistNames}) with payout ₹${payoutAmount.toLocaleString('en-IN')}. First specialist to accept takes the task.`
-      : `[SYSTEM] 🎯 Task offered to specialist ${flRecords[0].name} (Payout: ₹${payoutAmount.toLocaleString('en-IN')}). Awaiting specialist review and acceptance.`;
+    const systemNotice = `[SYSTEM] 🎯 Task assigned directly to specialist ${flRecords[0].name} (Payout: ₹${payoutAmount.toLocaleString('en-IN')}). Production is now active.`;
 
     // System message audit log
     try {
@@ -260,23 +256,19 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
       console.error('Failed to insert assignment audit message:', msgErr);
     }
 
-    // Send task assignment emails to all invited specialists (safe async)
-    for (const fl of flRecords) {
-      try {
-        const emailBody = isMultiCandidate
-          ? `You and ${flRecords.length - 1} other vetted specialist(s) have been invited to Project #${orderId} (${updated[0].serviceCategory}) on a FIRST-COME, FIRST-SERVE basis! Payout: ₹${payoutAmount.toLocaleString('en-IN')}. Log in to review the brief and accept before others claim it.`
-          : `You have been offered Project #${orderId} (${updated[0].serviceCategory}) with an allocated payout of ₹${payoutAmount.toLocaleString('en-IN')}. Log in to your specialist portal to review the client brief and accept the assignment.`;
+    // Send task assignment email to specialist (safe async)
+    try {
+      const emailBody = `You have been assigned to Project #${orderId} (${updated[0].serviceCategory}) with an allocated payout of ₹${payoutAmount.toLocaleString('en-IN')}. Log in to your specialist portal to review the client assets and begin production.`;
 
-        await sendOrderUpdateEmail(
-          fl.email,
-          fl.name,
-          orderId,
-          isMultiCandidate ? '⚡ New FCFS Project Offer Available — Claim First!' : 'New Project Offer Available — Review & Accept',
-          emailBody
-        );
-      } catch (emailErr: any) {
-        console.error(`❌ Failed to send order assignment email to freelancer ${fl.email}:`, emailErr?.message || emailErr);
-      }
+      await sendOrderUpdateEmail(
+        flRecords[0].email,
+        flRecords[0].name,
+        orderId,
+        '🎯 New Project Assignment — Workonova',
+        emailBody
+      );
+    } catch (emailErr: any) {
+      console.error(`❌ Failed to send order assignment email to freelancer ${flRecords[0].email}:`, emailErr?.message || emailErr);
     }
 
     return c.json({ data: updated[0] });
