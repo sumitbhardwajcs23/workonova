@@ -84,7 +84,12 @@ export const orders = pgTable('orders', {
   midpointApprovedAt: text('midpoint_approved_at'), // Timestamp when client approved 50% deliverable
   freelancerSubmissionLink: text('freelancer_submission_link'), // Freelancer's 100% final delivered work link
   qaApprovedLink: text('qa_approved_link'), // QA-vetted final deliverables link
-  freelancerId: integer('freelancer_id'),           // References freelancers.id
+  freelancerId: integer('freelancer_id'),           // References freelancers.id (accepted freelancer)
+  assignedFreelancerIds: text('assigned_freelancer_ids'), // JSON array string of invited candidate freelancer IDs e.g. "[2, 5, 8]"
+  deadline: text('deadline'),                       // ISO end date-time string e.g. "2026-08-30T18:00:00.000Z"
+  durationValue: integer('duration_value'),         // Numeric time limit e.g. 7, 14, 1
+  durationUnit: text('duration_unit'),             // 'days' | 'months' | 'hours'
+  projectNotice: text('project_notice'),             // Client's review notice / milestone instructions
   freelancerPayoutAmount: integer('freelancer_payout_amount'),
   assignmentStatus: text('assignment_status'), // 'pending_acceptance' | 'accepted' | 'declined'
   declineReason: text('decline_reason'),           // Reason recorded if specialist declines offer

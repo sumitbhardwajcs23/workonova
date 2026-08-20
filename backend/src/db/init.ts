@@ -16,6 +16,11 @@ export async function initDatabase() {
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_by TEXT`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS declined_at TEXT`;
         await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS accepted_at TEXT`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS assigned_freelancer_ids TEXT`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS deadline TEXT`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS duration_value INTEGER`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS duration_unit TEXT`;
+        await sql`ALTER TABLE orders ADD COLUMN IF NOT EXISTS project_notice TEXT`;
         await sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS target_audience TEXT DEFAULT 'all'`;
         console.log('✅ Database schema migration verified (orders & messages table columns synced)!');
       }

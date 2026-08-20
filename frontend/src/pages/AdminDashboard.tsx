@@ -26,6 +26,12 @@ interface Order {
   midpointApprovedAt?: string;
   qaApprovedLink: string;
   freelancerId?: number;
+  assignedFreelancerIds?: string;
+  assignedFreelancers?: Array<{ id: number; name: string; email: string; services?: string[]; phone?: string }>;
+  deadline?: string;
+  durationValue?: number;
+  durationUnit?: string;
+  projectNotice?: string;
   freelancerPayoutAmount?: number;
   payoutStatus?: string;
   payoutReleasedAt?: string;
@@ -132,7 +138,11 @@ export default function AdminDashboard() {
   // ── MODALS & SUBMIT CONTROLS ──────────────────────────────────
   const [assignDeskTab, setAssignDeskTab] = useState<'pending' | 'assigned'>('pending');
   const [assigningOrder, setAssigningOrder] = useState<Order | null>(null);
-  const [selectedFreelancerId, setSelectedFreelancerId] = useState<number | ''>('');
+  const [selectedFreelancerIds, setSelectedFreelancerIds] = useState<number[]>([]);
+  const [assignDeadline, setAssignDeadline] = useState<string>('');
+  const [assignDurationValue, setAssignDurationValue] = useState<number | ''>('');
+  const [assignDurationUnit, setAssignDurationUnit] = useState<string>('days');
+  const [assignNotice, setAssignNotice] = useState<string>('');
   const [payoutAmount, setPayoutAmount] = useState<number>(0);
   const [isAssigning, setIsAssigning] = useState(false);
 
@@ -164,11 +174,15 @@ export default function AdminDashboard() {
   const [chatAudience, setChatAudience] = useState<'all' | 'client_only' | 'freelancer_only' | 'internal'>('all');
   const [chatChannelFilter, setChatChannelFilter] = useState<'all' | 'client' | 'freelancer' | 'internal'>('all');
 
-  // ── EDIT PRICE STATE ──────────────────────────────────────────
+  // ── EDIT PRICE & TIMELINE STATE ───────────────────────────────
   const [editPriceOrder, setEditPriceOrder] = useState<Order | null>(null);
   const [editPriceInput, setEditPriceInput] = useState<number>(0);
   const [editTierInput, setEditTierInput] = useState<string>('silver');
   const [editCategoryInput, setEditCategoryInput] = useState<string>('');
+  const [editDurationValue, setEditDurationValue] = useState<number | ''>('');
+  const [editDurationUnit, setEditDurationUnit] = useState<string>('days');
+  const [editDeadline, setEditDeadline] = useState<string>('');
+  const [editNotice, setEditNotice] = useState<string>('');
 
   // ── CMS (BLOGS & BUNDLES) MANAGEMENT STATES ────────────────────
   const [blogsList, setBlogsList] = useState<any[]>([]);
@@ -306,11 +320,76 @@ export default function AdminDashboard() {
   }, [relayOrder]);
 
 
+  // ── OPEN ASSIGN MODAL (MULTI-FREELANCER & TIMELINE CONTROLS) ──
+  const syncDeadlineFromDuration = (val: number, unit: string) => {
+    if (!val || val <= 0) return;
+    const now = new Date();
+    if (unit === 'months') now.setMonth(now.getMonth() + val);
+    else if (unit === 'hours') now.setHours(now.getHours() + val);
+    else now.setDate(now.getDate() + val);
+    setAssignDeadline(now.toISOString().slice(0, 16));
+  };
+
+  const openAssignModal = (o: Order) => {
+    setAssigningOrder(o);
+    setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
+
+    // Parse existing candidates
+    let initialIds: number[] = [];
+    if (o.assignedFreelancerIds) {
+      try {
+        const parsed = JSON.parse(o.assignedFreelancerIds);
+        if (Array.isArray(parsed)) initialIds = parsed.map(Number).filter(n => !isNaN(n) && n > 0);
+      } catch {}
+    }
+    if (initialIds.length === 0 && o.freelancerId) {
+      initialIds = [o.freelancerId];
+    }
+    if (initialIds.length === 0) {
+      const cat = o.serviceCategory || '';
+      const matched = freelancers.filter(f =>
+        (f.services || []).some(s =>
+          s.toLowerCase().includes(cat.toLowerCase()) ||
+          cat.toLowerCase().includes(s.toLowerCase())
+        )
+      );
+      if (matched.length > 0) {
+        initialIds = matched.map(f => f.id);
+      }
+    }
+    setSelectedFreelancerIds(initialIds);
+
+    // Deadline & duration defaults
+    if (o.deadline) {
+      try {
+        const d = new Date(o.deadline);
+        setAssignDeadline(d.toISOString().slice(0, 16));
+      } catch {
+        setAssignDeadline(o.deadline);
+      }
+    } else if (o.durationValue) {
+      const now = new Date();
+      const unit = o.durationUnit || 'days';
+      if (unit === 'months') now.setMonth(now.getMonth() + o.durationValue);
+      else if (unit === 'hours') now.setHours(now.getHours() + o.durationValue);
+      else now.setDate(now.getDate() + o.durationValue);
+      setAssignDeadline(now.toISOString().slice(0, 16));
+    } else {
+      const now = new Date();
+      now.setDate(now.getDate() + 7);
+      setAssignDeadline(now.toISOString().slice(0, 16));
+    }
+
+    setAssignDurationValue(o.durationValue || 7);
+    setAssignDurationUnit(o.durationUnit || 'days');
+    setAssignNotice(o.projectNotice || '');
+  };
+
   const handleAssignOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!assigningOrder) return;
-    if (!selectedFreelancerId) {
-      setError('Please select a freelancer from the dropdown.');
+    if (selectedFreelancerIds.length === 0) {
+      setError('Please select at least one freelancer specialist to assign.');
       return;
     }
     setError(''); setSuccess('');
@@ -319,12 +398,24 @@ export default function AdminDashboard() {
       const res = await fetch(`${API_BASE}/api/admin/orders/${assigningOrder.id}/assign`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ freelancerId: Number(selectedFreelancerId), payoutAmount: Number(payoutAmount) || 0 })
+        body: JSON.stringify({
+          freelancerIds: selectedFreelancerIds,
+          payoutAmount: Number(payoutAmount) || 0,
+          deadline: assignDeadline || undefined,
+          durationValue: assignDurationValue !== '' ? Number(assignDurationValue) : undefined,
+          durationUnit: assignDurationUnit,
+          projectNotice: assignNotice || undefined,
+        })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Assignment failed');
-      setSuccess(`🎯 Task #WN-${assigningOrder.id} assigned successfully to specialist!`);
-      setAssigningOrder(null); setSelectedFreelancerId(''); setPayoutAmount(0);
+      const isMulti = selectedFreelancerIds.length > 1;
+      setSuccess(isMulti
+        ? `⚡ Task #WN-${assigningOrder.id} offered to ${selectedFreelancerIds.length} specialists on First-Come First-Serve basis!`
+        : `🎯 Task #WN-${assigningOrder.id} assigned successfully to specialist!`
+      );
+      setAssigningOrder(null); setSelectedFreelancerIds([]); setPayoutAmount(0);
+      setAssignDeadline(''); setAssignDurationValue(''); setAssignNotice('');
       await fetchDashboardData(true);
     } catch (err: any) { 
       setError(err.message || 'Failed to assign task.'); 
@@ -362,12 +453,16 @@ export default function AdminDashboard() {
         body: JSON.stringify({
           price: editPriceInput,
           tier: editTierInput,
-          serviceCategory: editCategoryInput
+          serviceCategory: editCategoryInput,
+          deadline: editDeadline || undefined,
+          durationValue: editDurationValue !== '' ? Number(editDurationValue) : undefined,
+          durationUnit: editDurationUnit,
+          projectNotice: editNotice || undefined,
         })
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to update order price');
-      setSuccess(`Order #${editPriceOrder.id} price updated to ₹${editPriceInput.toLocaleString('en-IN')}!`);
+      if (!res.ok) throw new Error(data.error || 'Failed to update order price/timeline');
+      setSuccess(`Order #${editPriceOrder.id} price and timeline updated!`);
       setEditPriceOrder(null);
       fetchDashboardData();
     } catch (err: any) { setError(err.message); }
@@ -1345,17 +1440,22 @@ export default function AdminDashboard() {
                               {(!o.freelancerId || ['paid', 'paid_50', 'paid_75', 'pending_payment'].includes(o.status)) && (
                                 <button 
                                   className="ad-pag-btn active" 
-                                  title="Assign this task to a specialist freelancer"
-                                  onClick={() => {
-                                    setAssigningOrder(o);
-                                    setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
-                                    setSelectedFreelancerId(o.freelancerId || '');
-                                  }}
+                                  title="Assign this task to specialist freelancer(s) on FCFS basis"
+                                  onClick={() => openAssignModal(o)}
                                 >
                                   🎯 Assign
                                 </button>
                               )}
-                              <button className="ad-pag-btn" onClick={() => { setEditPriceOrder(o); setEditPriceInput(o.price); setEditTierInput(o.tier || 'silver'); setEditCategoryInput(o.serviceCategory); }}>✏️ Price</button>
+                              <button className="ad-pag-btn" onClick={() => {
+                                setEditPriceOrder(o);
+                                setEditPriceInput(o.price);
+                                setEditTierInput(o.tier || 'silver');
+                                setEditCategoryInput(o.serviceCategory);
+                                setEditDurationValue(o.durationValue || '');
+                                setEditDurationUnit(o.durationUnit || 'days');
+                                setEditDeadline(o.deadline ? o.deadline.slice(0, 16) : '');
+                                setEditNotice(o.projectNotice || '');
+                              }}>✏️ Price &amp; Timeline</button>
                               {o.status === 'submitted' && <button className="ad-pag-btn active" onClick={() => setQaOrder(o)}>🛡️ QA</button>}
                               {isMaster && ['assigned', 'submitted', 'qa_approved', 'revision_requested'].includes(o.status) && (
                                 <button className="ad-pag-btn" onClick={() => handleRevokeOrder(o.id)}>Revoke</button>
@@ -1540,17 +1640,13 @@ export default function AdminDashboard() {
                                     </button>
                                     <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
                                     {!o.freelancerId && ['paid', 'paid_50', 'paid_75'].includes(o.status) && (
-                                      <button
-                                        className="ad-btn-primary"
-                                        onClick={() => {
-                                          setAssigningOrder(o);
-                                          setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
-                                          setSelectedFreelancerId(o.freelancerId || '');
-                                        }}
-                                      >
-                                        🎯 Assign Specialist
-                                      </button>
-                                    )}
+                                       <button
+                                         className="ad-btn-primary"
+                                         onClick={() => openAssignModal(o)}
+                                       >
+                                         🎯 Assign Specialist
+                                       </button>
+                                     )}
                                   </div>
                                 </div>
                               ))}
@@ -1571,7 +1667,7 @@ export default function AdminDashboard() {
                   <p>Production Assignments</p>
                   <h1>Assign Desk</h1>
                   <p style={{ color: '#888', fontSize: 13, marginTop: 4 }}>
-                    Freelancers are matched by their registered <b>Area of Expertise</b>
+                    Assign tasks to a single specialist or broadcast to multiple specialists on a <b>First-Come, First-Served (FCFS)</b> basis with project duration &amp; deadlines.
                   </p>
                 </div>
 
@@ -1702,6 +1798,29 @@ export default function AdminDashboard() {
                                               </div>
                                               <p className="ad-qc-brief">{o.description || 'No brief details provided.'}</p>
 
+                                              {/* Timeline and Deadline badge if set by client or admin */}
+                                              {(o.deadline || o.durationValue) && (
+                                                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0', fontSize: 12 }}>
+                                                  {o.durationValue && (
+                                                    <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '3px 8px', borderRadius: 6, fontWeight: 600 }}>
+                                                      ⏱️ Time Limit: {o.durationValue} {o.durationUnit || 'days'}
+                                                    </span>
+                                                  )}
+                                                  {o.deadline && (
+                                                    <span style={{ background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '3px 8px', borderRadius: 6, fontWeight: 600 }}>
+                                                      📅 End Date: {new Date(o.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              )}
+
+                                              {/* Notice text if specified */}
+                                              {o.projectNotice && (
+                                                <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 10px', fontSize: 12, color: '#92400e', marginBottom: 8 }}>
+                                                  <b>📝 Client Notice:</b> {o.projectNotice}
+                                                </div>
+                                              )}
+
                                               {/* Decline Notice Banner if previously rejected */}
                                               {o.declineReason && (
                                                 <div style={{ background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: '#991b1b', margin: '8px 0' }}>
@@ -1717,17 +1836,9 @@ export default function AdminDashboard() {
                                               <div className="ad-qc-actions">
                                                 <button
                                                   className="ad-btn-primary"
-                                                  onClick={() => {
-                                                    setAssigningOrder(o);
-                                                    setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
-                                                    setSelectedFreelancerId(
-                                                      matchedFreelancers.length === 1
-                                                        ? matchedFreelancers[0].id
-                                                        : (freelancers.length === 1 ? freelancers[0].id : '')
-                                                    );
-                                                  }}
+                                                  onClick={() => openAssignModal(o)}
                                                 >
-                                                  {o.declineReason ? '🔄 Re-Assign to New Specialist' : '🎯 Assign Task to Freelancer'}
+                                                  {o.declineReason ? '🔄 Re-Assign to New Specialist(s)' : '🎯 Assign / FCFS Multi-Offer'}
                                                 </button>
                                               </div>
                                             </div>
@@ -1753,53 +1864,91 @@ export default function AdminDashboard() {
                             </div>
                           ) : (
                             <div className="ad-qc-grid">
-                              {assignedOrders.map(o => (
-                                <div className="ad-qc-card" key={o.id}>
-                                  <div className="ad-qc-header">
-                                    <div>
-                                      <h3>Order #WN-{o.id}</h3>
-                                      <small style={{ color: '#888' }}>{o.serviceCategory} ({o.tier?.toUpperCase() || 'STANDARD'})</small>
+                              {assignedOrders.map(o => {
+                                const isPendingAcceptance = o.assignmentStatus === 'pending_acceptance';
+                                let candidateNames = '';
+                                if (o.assignedFreelancers && o.assignedFreelancers.length > 0) {
+                                  candidateNames = o.assignedFreelancers.map(f => f.name).join(', ');
+                                }
+                                return (
+                                  <div className="ad-qc-card" key={o.id}>
+                                    <div className="ad-qc-header">
+                                      <div>
+                                        <h3>Order #WN-{o.id}</h3>
+                                        <small style={{ color: '#888' }}>{o.serviceCategory} ({o.tier?.toUpperCase() || 'STANDARD'})</small>
+                                      </div>
+                                      <span className="ad-assign-assigned-badge" style={isPendingAcceptance ? { background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' } : {}}>
+                                        {isPendingAcceptance ? (
+                                          `⚡ FCFS Multi-Offer (${o.assignedFreelancers?.length || 1} Invited)`
+                                        ) : (
+                                          `👤 ${o.freelancer?.name || `Specialist #${o.freelancerId}`}`
+                                        )}
+                                      </span>
                                     </div>
-                                    <span className="ad-assign-assigned-badge">
-                                      👤 {o.freelancer?.name || `Specialist #${o.freelancerId}`}
-                                    </span>
-                                  </div>
-                                  <p className="ad-qc-brief">{o.description || 'No brief provided.'}</p>
-                                  <div className="ad-assign-order-meta">
-                                    <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
-                                    <span>Agreed Payout: <b>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></span>
-                                  </div>
-                                  <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                                      <span className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</span>
-                                      {o.assignmentStatus === 'pending_acceptance' ? (
-                                        <span style={{ fontSize: 10.5, fontWeight: 800, color: '#b45309', background: '#fef3c7', padding: '2px 7px', borderRadius: 4, border: '1px solid #f59e0b', textTransform: 'uppercase' }}>
-                                          ⏳ Awaiting Acceptance
-                                        </span>
-                                      ) : (
-                                        <span style={{ fontSize: 10.5, fontWeight: 800, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 4, border: '1px solid #86efac', textTransform: 'uppercase' }}>
-                                          ✓ In Production
-                                        </span>
-                                      )}
+                                    <p className="ad-qc-brief">{o.description || 'No brief provided.'}</p>
+
+                                    {/* Timeline and Deadline */}
+                                    {(o.deadline || o.durationValue) && (
+                                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '6px 0', fontSize: 12 }}>
+                                        {o.durationValue && (
+                                          <span style={{ background: '#f0fdf4', color: '#166534', border: '1px solid #bbf7d0', padding: '2px 7px', borderRadius: 5, fontWeight: 600 }}>
+                                            ⏱️ {o.durationValue} {o.durationUnit || 'days'}
+                                          </span>
+                                        )}
+                                        {o.deadline && (
+                                          <span style={{ background: '#eff6ff', color: '#1e40af', border: '1px solid #bfdbfe', padding: '2px 7px', borderRadius: 5, fontWeight: 600 }}>
+                                            📅 Due: {new Date(o.deadline).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+
+                                    {/* Project Notice */}
+                                    {o.projectNotice && (
+                                      <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '5px 8px', fontSize: 11.5, color: '#92400e', marginBottom: 6 }}>
+                                        <b>📝 Notice:</b> {o.projectNotice}
+                                      </div>
+                                    )}
+
+                                    {/* Candidate list if FCFS pending */}
+                                    {isPendingAcceptance && candidateNames && (
+                                      <div style={{ fontSize: 11.5, color: '#64748b', background: '#f8fafc', padding: '5px 8px', borderRadius: 5, border: '1px solid #e2e8f0', marginBottom: 8 }}>
+                                        <b>⚡ Invited Candidates:</b> {candidateNames}
+                                      </div>
+                                    )}
+
+                                    <div className="ad-assign-order-meta">
+                                      <span>Client: <b>{o.client?.name || `#${o.clientId}`}</b></span>
+                                      <span>Agreed Payout: <b>₹{(o.freelancerPayoutAmount || 0).toLocaleString()}</b></span>
                                     </div>
-                                    {o.midpointSubmissionLink && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ 50% Midpoint uploaded</span>}
+                                    <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                        <span className={`fd-status-pill ${o.status}`}>{o.status.replace('_', ' ').toUpperCase()}</span>
+                                        {isPendingAcceptance ? (
+                                          <span style={{ fontSize: 10.5, fontWeight: 800, color: '#b45309', background: '#fef3c7', padding: '2px 7px', borderRadius: 4, border: '1px solid #f59e0b', textTransform: 'uppercase' }}>
+                                            ⏳ Awaiting Specialist Acceptance (FCFS)
+                                          </span>
+                                        ) : (
+                                          <span style={{ fontSize: 10.5, fontWeight: 800, color: '#15803d', background: '#dcfce7', padding: '2px 7px', borderRadius: 4, border: '1px solid #86efac', textTransform: 'uppercase' }}>
+                                            ✓ In Production
+                                          </span>
+                                        )}
+                                      </div>
+                                      {o.midpointSubmissionLink && <span style={{ fontSize: 12, color: '#16a34a', fontWeight: 600 }}>✓ 50% Midpoint uploaded</span>}
+                                    </div>
+                                    <div className="ad-qc-actions" style={{ display: 'flex', gap: 8 }}>
+                                      <button
+                                        className="ad-btn-primary"
+                                        style={{ flex: 1 }}
+                                        onClick={() => openAssignModal(o)}
+                                      >
+                                        🔄 Re-assign / Invite Candidates
+                                      </button>
+                                      <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
+                                    </div>
                                   </div>
-                                  <div className="ad-qc-actions" style={{ display: 'flex', gap: 8 }}>
-                                    <button
-                                      className="ad-btn-primary"
-                                      style={{ flex: 1 }}
-                                      onClick={() => {
-                                        setAssigningOrder(o);
-                                        setPayoutAmount(o.freelancerPayoutAmount || Math.floor(o.price * 0.7));
-                                        setSelectedFreelancerId(o.freelancerId || '');
-                                      }}
-                                    >
-                                      🔄 Re-assign Specialist
-                                    </button>
-                                    <button className="ad-pag-btn" onClick={() => setRelayOrder(o)}>💬 Chat</button>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -2916,6 +3065,7 @@ export default function AdminDashboard() {
       {/* ═══════════ MODALS ═══════════ */}
 
       {/* ASSIGN MODAL — expertise filtered */}
+      {/* ASSIGN MODAL — multi-specialist FCFS, duration limit, and notice */}
       {assigningOrder && (() => {
         const category = assigningOrder.serviceCategory || '';
         const matchedFreelancers = freelancers.filter(f =>
@@ -2925,39 +3075,71 @@ export default function AdminDashboard() {
           )
         );
         const otherFreelancers = freelancers.filter(f => !matchedFreelancers.includes(f));
+        const isMultiSelected = selectedFreelancerIds.length > 1;
+
+        const toggleFreelancer = (id: number) => {
+          if (selectedFreelancerIds.includes(id)) {
+            setSelectedFreelancerIds(selectedFreelancerIds.filter(x => x !== id));
+          } else {
+            setSelectedFreelancerIds([...selectedFreelancerIds, id]);
+          }
+        };
+
+        const selectAllMatched = () => {
+          setSelectedFreelancerIds(matchedFreelancers.map(f => f.id));
+        };
+
+        const selectAll = () => {
+          setSelectedFreelancerIds(freelancers.map(f => f.id));
+        };
+
+        const clearSelection = () => {
+          setSelectedFreelancerIds([]);
+        };
+
         return (
           <div className="ad-modal-overlay" onClick={() => setAssigningOrder(null)}>
-            <div className="ad-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
-              <div className="ad-modal-header">
-                <h2>🎯 Assign Task — Order #WN-{assigningOrder.id}</h2>
+            <div className="ad-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 680, maxHeight: '90vh', overflowY: 'auto' }}>
+              <div className="ad-modal-header" style={{ borderBottom: '1px solid #e2e8f0', paddingBottom: 14 }}>
+                <div>
+                  <h2 style={{ margin: 0, fontSize: 19 }}>🎯 Task Assignment &amp; FCFS Dispatch</h2>
+                  <small style={{ color: '#64748b' }}>Order #WN-{assigningOrder.id} · {assigningOrder.serviceCategory} ({assigningOrder.tier?.toUpperCase() || 'STANDARD'})</small>
+                </div>
                 <button className="ad-modal-close" onClick={() => setAssigningOrder(null)}>×</button>
               </div>
+
               <div className="ad-modal-body">
                 {/* Order info strip */}
-                <div className="ad-assign-modal-info">
+                <div className="ad-assign-modal-info" style={{ marginBottom: 14 }}>
                   <div className="ad-assign-modal-info-row">
-                    <span className="ad-assign-modal-label">Service</span>
-                    <span className="ad-assign-modal-value">{assigningOrder.serviceCategory}</span>
-                  </div>
-                  <div className="ad-assign-modal-info-row">
-                    <span className="ad-assign-modal-label">Tier</span>
-                    <span className="ad-assign-modal-value">{assigningOrder.tier || 'Standard'}</span>
+                    <span className="ad-assign-modal-label">Client Name</span>
+                    <span className="ad-assign-modal-value">{assigningOrder.client?.name || `Client #${assigningOrder.clientId}`}</span>
                   </div>
                   <div className="ad-assign-modal-info-row">
                     <span className="ad-assign-modal-label">Client Price</span>
-                    <span className="ad-assign-modal-value">₹{assigningOrder.price.toLocaleString()}</span>
+                    <span className="ad-assign-modal-value" style={{ color: '#16a34a', fontWeight: 800 }}>₹{assigningOrder.price.toLocaleString()}</span>
+                  </div>
+                  <div className="ad-assign-modal-info-row">
+                    <span className="ad-assign-modal-label">Intake Assets</span>
+                    <span className="ad-assign-modal-value">
+                      {assigningOrder.submissionLink ? (
+                        <a href={assigningOrder.submissionLink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 700 }}>
+                          View Files ↗
+                        </a>
+                      ) : 'Pending Intake'}
+                    </span>
                   </div>
                 </div>
 
                 {assigningOrder.description && (
                   <div style={{ marginBottom: 16, background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', fontSize: 13, color: '#475569' }}>
-                    <div style={{ fontWeight: 700, fontSize: 11, textTransform: 'uppercase', color: '#94a3b8', marginBottom: 4 }}>Task Brief</div>
-                    <div style={{ maxHeight: 80, overflowY: 'auto', lineHeight: 1.4 }}>{assigningOrder.description}</div>
+                    <div style={{ fontWeight: 700, fontSize: 11, textTransform: 'uppercase', color: '#94a3b8', marginBottom: 4 }}>Task Scope Brief</div>
+                    <div style={{ maxHeight: 70, overflowY: 'auto', lineHeight: 1.4 }}>{assigningOrder.description}</div>
                   </div>
                 )}
 
                 {freelancers.length === 0 ? (
-                  <div style={{ padding: 16, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, textAlign: 'center', margin: '16px 0' }}>
+                  <div style={{ padding: 20, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, textAlign: 'center', margin: '16px 0' }}>
                     <p style={{ color: '#991b1b', fontSize: 14, margin: '0 0 10px', fontWeight: 600 }}>⚠️ No freelancers found in the platform roster.</p>
                     <button
                       type="button"
@@ -2972,70 +3154,228 @@ export default function AdminDashboard() {
                   </div>
                 ) : (
                   <form id="assignForm" onSubmit={handleAssignOrder}>
+                    {/* SECTION 1: FREELANCER SPECIALIST SELECTION (MULTI FCFS) */}
                     <div className="ad-form-row">
-                      <label className="ad-form-label">
-                        Select Freelancer Specialist
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                        <label className="ad-form-label" style={{ margin: 0 }}>
+                          Select Specialist Candidates ({selectedFreelancerIds.length} chosen)
+                        </label>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {matchedFreelancers.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={selectAllMatched}
+                              style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #86efac', background: '#f0fdf4', color: '#166534', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              ⚡ Matched ({matchedFreelancers.length})
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={selectAll}
+                            style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#f8fafc', color: '#334155', fontWeight: 600, cursor: 'pointer' }}
+                          >
+                            All ({freelancers.length})
+                          </button>
+                          {selectedFreelancerIds.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={clearSelection}
+                              style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#991b1b', fontWeight: 600, cursor: 'pointer' }}
+                            >
+                              Clear
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* FCFS MODE BANNER */}
+                      {isMultiSelected && (
+                        <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 12px', marginBottom: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
+                          <span style={{ fontSize: 20 }}>⚡</span>
+                          <div style={{ fontSize: 12, color: '#92400e', lineHeight: 1.4 }}>
+                            <b>First-Come, First-Served (FCFS) Offer Active:</b> The task will be dispatched to all <b>{selectedFreelancerIds.length} selected specialists</b> simultaneously. The first specialist to click <b>Accept</b> claims the task exclusively, and others will no longer be able to take it.
+                          </div>
+                        </div>
+                      )}
+
+                      {/* SPECIALIST SELECTION GRID */}
+                      <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, maxHeight: 220, overflowY: 'auto', background: '#f8fafc', padding: 8 }}>
                         {matchedFreelancers.length > 0 && (
-                          <span className="ad-assign-match-pill matched" style={{ marginLeft: 10 }}>
-                            ✓ {matchedFreelancers.length} expert{matchedFreelancers.length > 1 ? 's' : ''} matched
-                          </span>
-                        )}
-                      </label>
-                      <select
-                        className="ad-form-select"
-                        value={selectedFreelancerId}
-                        onChange={e => setSelectedFreelancerId(e.target.value === '' ? '' : Number(e.target.value))}
-                        required
-                      >
-                        <option value="">— Choose a freelancer —</option>
-
-                        {/* Matched by expertise — shown first */}
-                        {matchedFreelancers.length > 0 && (
-                          <optgroup label={`✓ Matched for "${category}" (${matchedFreelancers.length})`}>
-                            {matchedFreelancers.map(f => (
-                              <option key={f.id} value={f.id}>
-                                {f.name} · {(f.services || []).slice(0, 2).join(', ')} ({f.email})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-
-                        {/* Other freelancers — different expertise */}
-                        {otherFreelancers.length > 0 && (
-                          <optgroup label={`Other Freelancers (${otherFreelancers.length})`}>
-                            {otherFreelancers.map(f => (
-                              <option key={f.id} value={f.id}>
-                                {f.name} · {(f.services || []).slice(0, 2).join(', ') || 'General Specialist'} ({f.email})
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-
-                      {/* Show selected freelancer's expertise tags */}
-                      {selectedFreelancerId !== '' && (() => {
-                        const sel = freelancers.find(f => f.id === selectedFreelancerId);
-                        if (!sel) return null;
-                        const isMatch = matchedFreelancers.includes(sel);
-                        return (
-                          <div className="ad-assign-selected-info">
-                            <span className={`ad-assign-match-pill ${isMatch ? 'matched' : 'other'}`}>
-                              {isMatch ? '✓ Verified expertise matches this category' : 'ℹ️ Assigned from general roster'}
-                            </span>
-                            <div className="ad-assign-selected-tags">
-                              {(sel.services || []).map(s => (
-                                <span key={s} className={`ad-assign-tag ${s.toLowerCase().includes(category.toLowerCase()) || category.toLowerCase().includes(s.toLowerCase()) ? 'highlight' : ''}`}>
-                                  {s}
-                                </span>
-                              ))}
+                          <div style={{ marginBottom: 10 }}>
+                            <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: '#16a34a', padding: '4px 6px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                              <span>✓ Matched for "{category}" ({matchedFreelancers.length})</span>
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 6 }}>
+                              {matchedFreelancers.map(f => {
+                                const isChecked = selectedFreelancerIds.includes(f.id);
+                                return (
+                                  <div
+                                    key={f.id}
+                                    onClick={() => toggleFreelancer(f.id)}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 10,
+                                      padding: '8px 10px',
+                                      borderRadius: 6,
+                                      border: isChecked ? '2px solid #16a34a' : '1px solid #e2e8f0',
+                                      background: isChecked ? '#f0fdf4' : '#ffffff',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.15s ease'
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {}}
+                                      style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#16a34a' }}
+                                    />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <span>{f.name}</span>
+                                        <span style={{ fontSize: 9.5, background: '#dcfce7', color: '#166534', padding: '1px 5px', borderRadius: 4, fontWeight: 800 }}>EXPERT</span>
+                                      </div>
+                                      <div style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {(f.services || []).slice(0, 2).join(', ')} • {f.email}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
-                        );
-                      })()}
+                        )}
+
+                        {otherFreelancers.length > 0 && (
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: '#64748b', padding: '4px 6px' }}>
+                              Other Specialists ({otherFreelancers.length})
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 6 }}>
+                              {otherFreelancers.map(f => {
+                                const isChecked = selectedFreelancerIds.includes(f.id);
+                                return (
+                                  <div
+                                    key={f.id}
+                                    onClick={() => toggleFreelancer(f.id)}
+                                    style={{
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: 10,
+                                      padding: '8px 10px',
+                                      borderRadius: 6,
+                                      border: isChecked ? '2px solid #2563eb' : '1px solid #e2e8f0',
+                                      background: isChecked ? '#eff6ff' : '#ffffff',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.15s ease'
+                                    }}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() => {}}
+                                      style={{ cursor: 'pointer', width: 16, height: 16, accentColor: '#2563eb' }}
+                                    />
+                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>
+                                        {f.name}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                        {(f.services || []).slice(0, 2).join(', ') || 'General'} • {f.email}
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
 
+                    {/* SECTION 2: TIMELINE, TIME LIMIT & END DATE / TIME */}
+                    <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+                      <div style={{ fontSize: 12, fontWeight: 800, textTransform: 'uppercase', color: '#334155', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span>⏱️ Project Time Limit &amp; Deadline</span>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                        {/* Time Limit: Value + Unit */}
+                        <div>
+                          <label className="ad-form-label" style={{ fontSize: 11.5 }}>
+                            Project Time Limit
+                          </label>
+                          <div style={{ display: 'flex', gap: 6 }}>
+                            <input
+                              className="ad-form-input"
+                              type="number"
+                              min="1"
+                              placeholder="e.g. 7"
+                              value={assignDurationValue}
+                              onChange={e => {
+                                const val = e.target.value === '' ? '' : Number(e.target.value);
+                                setAssignDurationValue(val);
+                                if (typeof val === 'number' && val > 0) {
+                                  syncDeadlineFromDuration(val, assignDurationUnit);
+                                }
+                              }}
+                              style={{ width: '50%' }}
+                            />
+                            <select
+                              className="ad-form-select"
+                              value={assignDurationUnit}
+                              onChange={e => {
+                                const u = e.target.value;
+                                setAssignDurationUnit(u);
+                                if (typeof assignDurationValue === 'number' && assignDurationValue > 0) {
+                                  syncDeadlineFromDuration(assignDurationValue, u);
+                                }
+                              }}
+                              style={{ width: '50%' }}
+                            >
+                              <option value="days">Days</option>
+                              <option value="months">Months</option>
+                              <option value="hours">Hours</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Concrete End Date & Time */}
+                        <div>
+                          <label className="ad-form-label" style={{ fontSize: 11.5 }}>
+                            End Date &amp; Time (Deadline)
+                          </label>
+                          <input
+                            className="ad-form-input"
+                            type="datetime-local"
+                            value={assignDeadline}
+                            onChange={e => setAssignDeadline(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* SECTION 3: PROJECT NOTICE & REVIEW GUIDELINES */}
                     <div className="ad-form-row">
-                      <label className="ad-form-label">Freelancer Agreed Payout (₹)</label>
+                      <label className="ad-form-label">
+                        Project Notice / Milestone Guidelines for Freelancer
+                      </label>
+                      <textarea
+                        className="ad-form-textarea"
+                        rows={2}
+                        placeholder="e.g. Client needs initial Figma wireframe within 48 hours. 2 revisions included. Final deliverable must include raw source files."
+                        value={assignNotice}
+                        onChange={e => setAssignNotice(e.target.value)}
+                      />
+                      <small style={{ color: '#64748b', fontSize: 11 }}>
+                        This notice will be displayed prominently on the freelancer's offer card and workspace alongside the countdown.
+                      </small>
+                    </div>
+
+                    {/* SECTION 4: FREELANCER AGREED PAYOUT */}
+                    <div className="ad-form-row">
+                      <label className="ad-form-label">Specialist Agreed Payout (₹ INR)</label>
                       <input
                         className="ad-form-input"
                         type="number"
@@ -3052,8 +3392,19 @@ export default function AdminDashboard() {
 
                     <div className="ad-modal-footer" style={{ padding: '16px 0 0', marginTop: 16, borderTop: '1px solid #f0f0ee' }}>
                       <button type="button" className="ad-btn-secondary" onClick={() => setAssigningOrder(null)} disabled={isAssigning}>Cancel</button>
-                      <button className="ad-btn-primary" type="submit" disabled={isAssigning || !selectedFreelancerId}>
-                        {isAssigning ? 'Assigning Task...' : '🎯 Confirm & Assign Task'}
+                      <button
+                        className="ad-btn-primary"
+                        type="submit"
+                        disabled={isAssigning || selectedFreelancerIds.length === 0}
+                        style={{
+                          background: isMultiSelected ? 'linear-gradient(135deg, #d97706, #b45309)' : undefined
+                        }}
+                      >
+                        {isAssigning
+                          ? 'Dispatching Task...'
+                          : isMultiSelected
+                            ? `⚡ Broadcast FCFS Offer to ${selectedFreelancerIds.length} Specialists`
+                            : '🎯 Confirm & Assign Task'}
                       </button>
                     </div>
                   </form>
@@ -3121,12 +3472,7 @@ export default function AdminDashboard() {
             <div className="ad-modal" style={{ maxWidth: 780, width: '94%', borderRadius: 14, overflow: 'hidden' }} onClick={e => e.stopPropagation()}>
               <div className="ad-modal-header" style={{ borderBottom: '1px solid #e2e8f0', background: '#0f172a', color: '#ffffff', padding: '16px 20px' }}>
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <h2 style={{ margin: 0, fontSize: 18, color: '#ffffff' }}>💬 Communication Command Center — #WN-{relayOrder.id}</h2>
-                    <span style={{ fontSize: 11, fontWeight: 700, background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80', border: '1px solid #22c55e', padding: '2px 10px', borderRadius: 12 }}>
-                      🛡️ Financial Privacy Shield Active
-                    </span>
-                  </div>
+                  <h2 style={{ margin: 0, fontSize: 18, color: '#ffffff' }}>💬 Communication Command Center — #WN-{relayOrder.id}</h2>
                   <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                     <span>Client: <b style={{ color: '#f8fafc' }}>{relayOrder.client?.name || `Client #${relayOrder.clientId}`}</b></span>
                     <span>Specialist: <b style={{ color: '#f8fafc' }}>{relayOrder.freelancer?.name || (relayOrder.freelancerId ? `Specialist #${relayOrder.freelancerId}` : 'Unassigned')}</b></span>
@@ -3134,11 +3480,6 @@ export default function AdminDashboard() {
                   </div>
                 </div>
                 <button className="ad-modal-close" style={{ color: '#94a3b8' }} onClick={() => setRelayOrder(null)}>×</button>
-              </div>
-
-              {/* Privacy Notice Banner */}
-              <div style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0', padding: '9px 18px', fontSize: 12, color: '#334155', display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span>🔒 <b>Client Payment Isolation:</b> Client sees only their invoice. Specialist payout (₹{relayOrder.freelancerPayoutAmount?.toLocaleString('en-IN') || 0}) and internal notes are isolated.</span>
               </div>
 
               {/* Channel View Filter Tabs */}
@@ -3890,12 +4231,12 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* EDIT ORDER PRICE MODAL */}
+      {/* EDIT ORDER PRICE & TIMELINE MODAL */}
       {editPriceOrder && (
         <div className="ad-modal-overlay" onClick={() => setEditPriceOrder(null)}>
-          <div className="ad-modal" onClick={e => e.stopPropagation()}>
+          <div className="ad-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 560 }}>
             <div className="ad-modal-header">
-              <h2>✏️ Customize Order Price — #WN-{editPriceOrder.id}</h2>
+              <h2>✏️ Customize Order Price &amp; Timeline — #WN-{editPriceOrder.id}</h2>
               <button className="ad-modal-close" onClick={() => setEditPriceOrder(null)}>×</button>
             </div>
             <div className="ad-modal-body">
@@ -3917,11 +4258,73 @@ export default function AdminDashboard() {
                   <input className="ad-form-input" type="number" required min={0} value={editPriceInput} onChange={e => setEditPriceInput(Number(e.target.value))} />
                   <small style={{ fontSize: 11, color: '#666', marginTop: 4, display: 'block' }}>Setting this price according to category requirements will immediately update the client's workspace portal.</small>
                 </div>
+
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, margin: '12px 0' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: 8 }}>
+                    ⏱️ Project Timeline &amp; Deadline
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label className="ad-form-label" style={{ fontSize: 11 }}>Time Limit</label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          className="ad-form-input"
+                          type="number"
+                          min="1"
+                          placeholder="e.g. 7"
+                          value={editDurationValue}
+                          onChange={e => {
+                            const val = e.target.value === '' ? '' : Number(e.target.value);
+                            setEditDurationValue(val);
+                            if (typeof val === 'number' && val > 0) {
+                              const now = new Date();
+                              if (editDurationUnit === 'months') now.setMonth(now.getMonth() + val);
+                              else if (editDurationUnit === 'hours') now.setHours(now.getHours() + val);
+                              else now.setDate(now.getDate() + val);
+                              setEditDeadline(now.toISOString().slice(0, 16));
+                            }
+                          }}
+                          style={{ width: '50%' }}
+                        />
+                        <select
+                          className="ad-form-select"
+                          value={editDurationUnit}
+                          onChange={e => setEditDurationUnit(e.target.value)}
+                          style={{ width: '50%' }}
+                        >
+                          <option value="days">Days</option>
+                          <option value="months">Months</option>
+                          <option value="hours">Hours</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="ad-form-label" style={{ fontSize: 11 }}>Deadline Date &amp; Time</label>
+                      <input
+                        className="ad-form-input"
+                        type="datetime-local"
+                        value={editDeadline}
+                        onChange={e => setEditDeadline(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="ad-form-row">
+                  <label className="ad-form-label">Client Notice / Milestone Guidelines</label>
+                  <textarea
+                    className="ad-form-textarea"
+                    rows={2}
+                    placeholder="Notice or special instructions for the specialist..."
+                    value={editNotice}
+                    onChange={e => setEditNotice(e.target.value)}
+                  />
+                </div>
               </form>
             </div>
             <div className="ad-modal-footer">
               <button className="ad-btn-secondary" onClick={() => setEditPriceOrder(null)}>Cancel</button>
-              <button className="ad-btn-primary" form="editPriceForm" type="submit">Save &amp; Sync Price to Client Portal</button>
+              <button className="ad-btn-primary" form="editPriceForm" type="submit">Save &amp; Sync Price &amp; Timeline</button>
             </div>
           </div>
         </div>

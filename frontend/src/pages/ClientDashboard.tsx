@@ -25,6 +25,11 @@ interface Order {
   paymentId?: string;
   razorpayOrderId?: string;
   freelancerId?: number;
+  assignedFreelancerIds?: string;
+  deadline?: string;
+  durationValue?: number;
+  durationUnit?: string;
+  projectNotice?: string;
   createdAt: string;
   adminRevisionComments?: string;
 }
@@ -56,6 +61,10 @@ interface Project {
   razorpayOrderId?: string;
   placedDate: string;
   estDelivery: string;
+  deadline?: string;
+  durationValue?: number;
+  durationUnit?: string;
+  projectNotice?: string;
   amount: number;
   currentStep: number;
   stepDates: string[];
@@ -253,7 +262,26 @@ function ProjectCard({
       {/* Card Body */}
       <div className="cd-card-body">
         <h2 className="cd-project-title">{project.title}</h2>
-        <p className="cd-project-meta">Placed: {project.placedDate} &nbsp;•&nbsp; Est. Delivery: <b>{project.estDelivery}</b></p>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', margin: '4px 0 10px 0', fontSize: 12 }}>
+          <span style={{ color: '#64748b' }}>Placed: {project.placedDate}</span>
+          <span style={{ color: '#cbd5e1' }}>•</span>
+          {project.durationValue ? (
+            <span style={{ color: '#059669', fontWeight: 600, background: '#ecfdf5', padding: '2px 7px', borderRadius: 4, border: '1px solid #a7f3d0' }}>
+              ⏱️ Time Limit: {project.durationValue} {project.durationUnit || 'days'}
+            </span>
+          ) : null}
+          <span style={{ color: '#cbd5e1' }}>•</span>
+          <span style={{ color: '#4f46e5', fontWeight: 600 }}>
+            📅 Target Delivery: <b>{project.deadline ? new Date(project.deadline).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : project.estDelivery}</b>
+          </span>
+        </div>
+
+        {/* Project Notice Box if set */}
+        {project.projectNotice && (
+          <div style={{ background: '#f8fafc', borderLeft: '3px solid #6366f1', padding: '6px 12px', borderRadius: 4, fontSize: 11.5, color: '#334155', marginBottom: 12 }}>
+            <b>📝 Project Notice / Scope Guidelines:</b> "{project.projectNotice}"
+          </div>
+        )}
 
         {/* 4-Step Progress Tracker */}
         <div className="cd-stepper">
@@ -588,6 +616,10 @@ export default function ClientDashboard() {
   const [customBrief, setCustomBrief] = useState('');
   const [customLink, setCustomLink] = useState('');
   const [customBudget, setCustomBudget] = useState('');
+  const [customDurationValue, setCustomDurationValue] = useState<number | ''>('');
+  const [customDurationUnit, setCustomDurationUnit] = useState<string>('days');
+  const [customDeadline, setCustomDeadline] = useState<string>('');
+  const [customNotice, setCustomNotice] = useState<string>('');
   const [customSubmitting, setCustomSubmitting] = useState(false);
 
   // Modal fields
@@ -596,6 +628,10 @@ export default function ClientDashboard() {
   const [newProjPrice, setNewProjPrice] = useState(14999);
   const [newProjBrief, setNewProjBrief] = useState('');
   const [newProjLink, setNewProjLink] = useState('');
+  const [newProjDurationValue, setNewProjDurationValue] = useState<number | ''>('');
+  const [newProjDurationUnit, setNewProjDurationUnit] = useState<string>('days');
+  const [newProjDeadline, setNewProjDeadline] = useState<string>('');
+  const [newProjNotice, setNewProjNotice] = useState<string>('');
   const [paymentProcessing, setPaymentProcessing] = useState(false);
 
   const [revWebUrl, setRevWebUrl] = useState('');
@@ -858,9 +894,11 @@ export default function ClientDashboard() {
       else if (o.status === 'cancelled') { status = 'Cancelled'; currentStep = 0; }
 
       const createdDate = new Date(o.createdAt || Date.now());
-      const estDate = new Date(createdDate.getTime() + 4 * 24 * 60 * 60 * 1000);
+      const estDate = o.deadline ? new Date(o.deadline) : new Date(createdDate.getTime() + 4 * 24 * 60 * 60 * 1000);
       const formattedCreated = createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' });
-      const formattedEst = estDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+      const formattedEst = o.deadline
+        ? estDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+        : estDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
       const deliverableLinks = o.qaApprovedLink ? [{ name: '🖼️ Download Final QA Assets', url: o.qaApprovedLink }] : (o.midpointSubmissionLink ? [{ name: '📁 Preview 50% Midpoint Work', url: o.midpointSubmissionLink }] : []);
       const updates = [{ date: createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: o.status === 'on_demand_review' ? '₹100 Advance received. Custom scoping under review.' : 'Intake brief successfully submitted.' }];
       if (o.adminRevisionComments) updates.unshift({ date: new Date().toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), text: o.status === 'quote_provided' ? `Custom Quote: ₹${o.price.toLocaleString('en-IN')} — ${o.adminRevisionComments}` : `Revision requested: "${o.adminRevisionComments}"` });
@@ -879,6 +917,10 @@ export default function ClientDashboard() {
         paymentId: o.paymentId,
         razorpayOrderId: o.razorpayOrderId,
         placedDate: formattedCreated, estDelivery: formattedEst, amount: o.price, currentStep,
+        deadline: o.deadline,
+        durationValue: o.durationValue,
+        durationUnit: o.durationUnit,
+        projectNotice: o.projectNotice,
         stepDates: [createdDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' }), o.status !== 'pending_payment' ? 'In Progress' : 'Pending Intake', (o.status === 'submitted' || o.status === 'qa_approved' || o.status === 'delivered') ? 'Under Review' : 'Est. ' + formattedEst, o.status === 'delivered' ? 'Finalized' : 'Handoff'],
         assets: [{ name: 'Project Brief Link', url: o.submissionLink || '#' }],
         updates,
@@ -914,7 +956,11 @@ export default function ClientDashboard() {
         body: JSON.stringify({
           serviceCategory: customCategory,
           description: customBrief + (customBudget ? `\n[Client Budget / Timeline Target: ${customBudget}]` : ''),
-          submissionLink: customLink.trim() || undefined
+          submissionLink: customLink.trim() || undefined,
+          durationValue: customDurationValue !== '' ? Number(customDurationValue) : undefined,
+          durationUnit: customDurationUnit || 'days',
+          deadline: customDeadline || undefined,
+          projectNotice: customNotice.trim() || undefined
         })
       });
       const rzpData = await res.json();
@@ -966,6 +1012,10 @@ export default function ClientDashboard() {
               setCustomBrief('');
               setCustomLink('');
               setCustomBudget('');
+              setCustomDurationValue('');
+              setCustomDurationUnit('days');
+              setCustomDeadline('');
+              setCustomNotice('');
               setCustomOrderModalOpen(false);
               fetchOrders();
             } catch (err: any) {
@@ -1012,7 +1062,11 @@ export default function ClientDashboard() {
           tier: newProjTier,
           price: newProjPrice,
           description: newProjBrief,
-          milestone: 1
+          milestone: 1,
+          durationValue: newProjDurationValue !== '' ? Number(newProjDurationValue) : undefined,
+          durationUnit: newProjDurationUnit || 'days',
+          deadline: newProjDeadline || undefined,
+          projectNotice: newProjNotice.trim() || undefined
         })
       });
       const rzpData = await rzpRes.json();
@@ -1066,12 +1120,23 @@ export default function ClientDashboard() {
               await fetch(`${API_BASE}/api/client/orders/${orderId}/submit`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                body: JSON.stringify({ description: newProjBrief, submissionLink: newProjLink })
+                body: JSON.stringify({
+                  description: newProjBrief,
+                  submissionLink: newProjLink,
+                  durationValue: newProjDurationValue !== '' ? Number(newProjDurationValue) : undefined,
+                  durationUnit: newProjDurationUnit || 'days',
+                  deadline: newProjDeadline || undefined,
+                  projectNotice: newProjNotice.trim() || undefined
+                })
               });
 
               triggerToast('🎉 Milestone 1 (50%) paid & Project order activated!');
               setNewProjBrief('');
               setNewProjLink('');
+              setNewProjDurationValue('');
+              setNewProjDurationUnit('days');
+              setNewProjDeadline('');
+              setNewProjNotice('');
               setNewProjectModalOpen(false);
               fetchOrders();
             } catch (err: any) {
@@ -2201,6 +2266,69 @@ export default function ClientDashboard() {
                   <input className="cd-form-input" type="url" required placeholder="https://drive.google.com/drive/folders/..." value={newProjLink} onChange={e => setNewProjLink(e.target.value)} />
                   <small style={{ fontSize: 11, color: '#aaa', marginTop: 4, display: 'block' }}>Link must contain brand templates &amp; visual elements.</small>
                 </div>
+
+                {/* Timeline & Delivery Deadline */}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, margin: '12px 0' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    ⏱️ Project Time Limit &amp; Deadline
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label className="cd-form-label" style={{ fontSize: 11 }}>Time Limit (Optional)</label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          className="cd-form-input"
+                          type="number"
+                          min="1"
+                          placeholder="e.g. 7"
+                          value={newProjDurationValue}
+                          onChange={e => {
+                            const val = e.target.value === '' ? '' : Number(e.target.value);
+                            setNewProjDurationValue(val);
+                            if (typeof val === 'number' && val > 0) {
+                              const now = new Date();
+                              if (newProjDurationUnit === 'months') now.setMonth(now.getMonth() + val);
+                              else if (newProjDurationUnit === 'hours') now.setHours(now.getHours() + val);
+                              else now.setDate(now.getDate() + val);
+                              setNewProjDeadline(now.toISOString().slice(0, 16));
+                            }
+                          }}
+                          style={{ width: '50%' }}
+                        />
+                        <select
+                          className="cd-form-select"
+                          value={newProjDurationUnit}
+                          onChange={e => setNewProjDurationUnit(e.target.value)}
+                          style={{ width: '50%' }}
+                        >
+                          <option value="days">Days</option>
+                          <option value="months">Months</option>
+                          <option value="hours">Hours</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="cd-form-label" style={{ fontSize: 11 }}>Expected End Date &amp; Time (Optional)</label>
+                      <input
+                        className="cd-form-input"
+                        type="datetime-local"
+                        value={newProjDeadline}
+                        onChange={e => setNewProjDeadline(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="cd-form-row">
+                  <label className="cd-form-label">Client Notice &amp; Milestone Guidelines (Optional)</label>
+                  <textarea
+                    className="cd-form-textarea"
+                    rows={2}
+                    placeholder="Specific guidelines, delivery format, or review requirements for the specialist..."
+                    value={newProjNotice}
+                    onChange={e => setNewProjNotice(e.target.value)}
+                  />
+                </div>
               </form>
             </div>
             <div className="cd-modal-footer">
@@ -2300,6 +2428,69 @@ export default function ClientDashboard() {
                     placeholder="e.g. Budget ~₹40,000 / Need delivery within 2 weeks"
                     value={customBudget}
                     onChange={e => setCustomBudget(e.target.value)}
+                  />
+                </div>
+
+                {/* Timeline & Delivery Deadline */}
+                <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, margin: '12px 0' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: '#475569', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    ⏱️ Preferred Time Limit &amp; Deadline
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                    <div>
+                      <label className="cd-form-label" style={{ fontSize: 11 }}>Time Limit (Optional)</label>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input
+                          className="cd-form-input"
+                          type="number"
+                          min="1"
+                          placeholder="e.g. 14"
+                          value={customDurationValue}
+                          onChange={e => {
+                            const val = e.target.value === '' ? '' : Number(e.target.value);
+                            setCustomDurationValue(val);
+                            if (typeof val === 'number' && val > 0) {
+                              const now = new Date();
+                              if (customDurationUnit === 'months') now.setMonth(now.getMonth() + val);
+                              else if (customDurationUnit === 'hours') now.setHours(now.getHours() + val);
+                              else now.setDate(now.getDate() + val);
+                              setCustomDeadline(now.toISOString().slice(0, 16));
+                            }
+                          }}
+                          style={{ width: '50%' }}
+                        />
+                        <select
+                          className="cd-form-select"
+                          value={customDurationUnit}
+                          onChange={e => setCustomDurationUnit(e.target.value)}
+                          style={{ width: '50%' }}
+                        >
+                          <option value="days">Days</option>
+                          <option value="months">Months</option>
+                          <option value="hours">Hours</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="cd-form-label" style={{ fontSize: 11 }}>Deadline Date &amp; Time (Optional)</label>
+                      <input
+                        className="cd-form-input"
+                        type="datetime-local"
+                        value={customDeadline}
+                        onChange={e => setCustomDeadline(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="cd-form-row">
+                  <label className="cd-form-label">Client Notice &amp; Scope Guidelines (Optional)</label>
+                  <textarea
+                    className="cd-form-textarea"
+                    rows={2}
+                    placeholder="Specific milestones, staging review guidelines, or SLA expectations..."
+                    value={customNotice}
+                    onChange={e => setCustomNotice(e.target.value)}
                   />
                 </div>
               </form>

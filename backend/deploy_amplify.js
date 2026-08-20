@@ -6,6 +6,8 @@ import {
   UpdateAppCommand,
   GetBranchCommand,
   CreateBranchCommand,
+  ListJobsCommand,
+  StopJobCommand,
   CreateDeploymentCommand,
   StartDeploymentCommand,
   GetJobCommand,
@@ -144,7 +146,25 @@ async function run() {
     await zipDirectory(distPath, zipPath);
     console.log('✅ Build artifacts zipped.');
 
-    // ── 4. Create Deployment ──
+    // ── 4. Cancel any previous in-progress jobs to avoid conflict ──
+    try {
+      const jobsList = await amplify.send(new ListJobsCommand({ appId, branchName, maxResults: 5 }));
+      for (const j of jobsList.jobSummaries || []) {
+        if (j.status === 'PENDING' || j.status === 'PROVISIONING' || j.status === 'RUNNING') {
+          console.log(`⏹️ Stopping previous job ${j.jobId} (status: ${j.status})...`);
+          try {
+            await amplify.send(new StopJobCommand({ appId, branchName, jobId: j.jobId }));
+            await new Promise(r => setTimeout(r, 2000));
+          } catch (stopErr) {
+            console.log(`Note on stop job: ${stopErr.message}`);
+          }
+        }
+      }
+    } catch (listErr) {
+      // Ignore if list fails
+    }
+
+    // ── 5. Create Deployment ──
     console.log('🌐 Requesting deployment slot from AWS Amplify...');
     const deployment = await amplify.send(
       new CreateDeploymentCommand({

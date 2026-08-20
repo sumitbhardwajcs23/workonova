@@ -50,6 +50,21 @@ function sanitizeOrderForClient(order: any) {
   return safeOrder;
 }
 
+// ── Helper to calculate default deadline from duration ──
+function calculateDefaultDeadline(durationValue?: number, durationUnit?: string): string | null {
+  if (!durationValue || durationValue <= 0) return null;
+  const now = new Date();
+  if (durationUnit === 'months') {
+    now.setMonth(now.getMonth() + durationValue);
+  } else if (durationUnit === 'hours') {
+    now.setHours(now.getHours() + durationValue);
+  } else {
+    // Default: days
+    now.setDate(now.getDate() + durationValue);
+  }
+  return now.toISOString();
+}
+
 // ── GET Orders ──
 clientApp.get('/orders', async (c) => {
   try {
@@ -70,6 +85,14 @@ clientApp.post('/orders', async (c) => {
     const tier = sanitise(body.tier || '');
     const price = Number(body.price) || 0;
     const description = sanitise(body.description || '');
+    const durationValue = body.durationValue !== undefined && body.durationValue !== '' ? Number(body.durationValue) : undefined;
+    const durationUnit = body.durationUnit ? sanitise(body.durationUnit) : 'days';
+    const projectNotice = body.projectNotice ? sanitise(body.projectNotice) : undefined;
+    let deadline = body.deadline ? sanitise(body.deadline) : undefined;
+
+    if (!deadline && durationValue) {
+      deadline = calculateDefaultDeadline(durationValue, durationUnit) || undefined;
+    }
 
     if (!serviceCategory || !tier || !price) {
       return c.json({ error: 'serviceCategory, tier, and price are required.' }, 400);
@@ -81,6 +104,10 @@ clientApp.post('/orders', async (c) => {
       tier,
       price,
       description,
+      durationValue: durationValue || null,
+      durationUnit: durationUnit || 'days',
+      deadline: deadline || null,
+      projectNotice: projectNotice || null,
       status: 'pending_payment',
       milestoneStage: 1,
       amountPaid: 0,
@@ -100,6 +127,14 @@ clientApp.post('/orders/:id/submit', async (c) => {
     const body = await c.req.json();
     const description = sanitise(body.description || '');
     const submissionLink = (body.submissionLink || '').trim();
+    const durationValue = body.durationValue !== undefined && body.durationValue !== '' ? Number(body.durationValue) : undefined;
+    const durationUnit = body.durationUnit ? sanitise(body.durationUnit) : undefined;
+    const projectNotice = body.projectNotice ? sanitise(body.projectNotice) : undefined;
+    let deadline = body.deadline ? sanitise(body.deadline) : undefined;
+
+    if (!deadline && durationValue) {
+      deadline = calculateDefaultDeadline(durationValue, durationUnit || 'days') || undefined;
+    }
 
     if (!submissionLink) {
       return c.json({ error: 'Project files link is required.' }, 400);
@@ -120,12 +155,18 @@ clientApp.post('/orders/:id/submit', async (c) => {
       return c.json({ error: 'Order not found.' }, 404);
     }
 
-    const updated = await db.update(orders).set({
+    const updatePayload: any = {
       description: description || orderRecord[0].description,
       submissionLink,
       status: orderRecord[0].status,
       updatedAt: new Date().toISOString(),
-    }).where(eq(orders.id, orderId)).returning();
+    };
+    if (durationValue !== undefined) updatePayload.durationValue = durationValue;
+    if (durationUnit !== undefined) updatePayload.durationUnit = durationUnit;
+    if (deadline !== undefined) updatePayload.deadline = deadline;
+    if (projectNotice !== undefined) updatePayload.projectNotice = projectNotice;
+
+    const updated = await db.update(orders).set(updatePayload).where(eq(orders.id, orderId)).returning();
 
     // Send email notification to client
     const sentOrderEmail = await sendOrderUpdateEmail(
@@ -284,6 +325,14 @@ clientApp.post('/custom-order/initiate', async (c) => {
     const serviceCategory = sanitise(body.serviceCategory || 'Custom Project');
     const description = sanitise(body.description || '');
     const submissionLink = (body.submissionLink || '').trim();
+    const durationValue = body.durationValue !== undefined && body.durationValue !== '' ? Number(body.durationValue) : undefined;
+    const durationUnit = body.durationUnit ? sanitise(body.durationUnit) : 'days';
+    const projectNotice = body.projectNotice ? sanitise(body.projectNotice) : undefined;
+    let deadline = body.deadline ? sanitise(body.deadline) : undefined;
+
+    if (!deadline && durationValue) {
+      deadline = calculateDefaultDeadline(durationValue, durationUnit) || undefined;
+    }
 
     if (!description) {
       return c.json({ error: 'Please describe your project requirements and scope.' }, 400);
@@ -296,6 +345,10 @@ clientApp.post('/custom-order/initiate', async (c) => {
       price: 100, // Initial token advance price
       description,
       submissionLink: submissionLink || null,
+      durationValue: durationValue || null,
+      durationUnit: durationUnit || 'days',
+      deadline: deadline || null,
+      projectNotice: projectNotice || null,
       status: 'pending_advance',
       milestoneStage: 0,
       amountPaid: 0,
@@ -369,6 +422,14 @@ clientApp.post('/razorpay/create-order', async (c) => {
       const tier = sanitise(body.tier || '');
       const price = Number(body.price) || 0;
       const description = sanitise(body.description || '');
+      const durationValue = body.durationValue !== undefined && body.durationValue !== '' ? Number(body.durationValue) : undefined;
+      const durationUnit = body.durationUnit ? sanitise(body.durationUnit) : 'days';
+      const projectNotice = body.projectNotice ? sanitise(body.projectNotice) : undefined;
+      let deadline = body.deadline ? sanitise(body.deadline) : undefined;
+
+      if (!deadline && durationValue) {
+        deadline = calculateDefaultDeadline(durationValue, durationUnit) || undefined;
+      }
 
       if (!serviceCategory || !tier || !price) {
         return c.json({ error: 'serviceCategory, tier, and price are required.' }, 400);
@@ -380,6 +441,10 @@ clientApp.post('/razorpay/create-order', async (c) => {
         tier,
         price,
         description,
+        durationValue: durationValue || null,
+        durationUnit: durationUnit || 'days',
+        deadline: deadline || null,
+        projectNotice: projectNotice || null,
         status: 'pending_payment',
         milestoneStage: 1,
         amountPaid: 0,

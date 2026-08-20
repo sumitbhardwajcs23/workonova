@@ -37,11 +37,27 @@ adminApp.get('/orders', roleGuard(['admin', 'qa_admin']), async (c) => {
     const clientMap = new Map(allClients.map(c => [c.id, c]));
     const freelancerMap = new Map(allFreelancers.map(f => [f.id, f]));
 
-    const enriched = allOrders.map(order => ({
-      ...order,
-      client: clientMap.get(order.clientId) || null,
-      freelancer: order.freelancerId ? (freelancerMap.get(order.freelancerId) || null) : null,
-    }));
+    const enriched = allOrders.map(order => {
+      let candidateIds: number[] = [];
+      try {
+        if (order.assignedFreelancerIds) {
+          const parsed = JSON.parse(order.assignedFreelancerIds);
+          if (Array.isArray(parsed)) candidateIds = parsed.map(Number).filter(n => !isNaN(n));
+        }
+      } catch {}
+      if (candidateIds.length === 0 && order.freelancerId) {
+        candidateIds = [order.freelancerId];
+      }
+
+      const assignedFreelancers = candidateIds.map(id => freelancerMap.get(id)).filter(Boolean);
+
+      return {
+        ...order,
+        client: clientMap.get(order.clientId) || null,
+        freelancer: order.freelancerId ? (freelancerMap.get(order.freelancerId) || null) : null,
+        assignedFreelancers,
+      };
+    });
 
     return c.json({ data: enriched });
   } catch (err: any) {
@@ -164,26 +180,47 @@ adminApp.patch('/users/:id/status', roleGuard(['admin']), async (c) => {
   }
 });
 
-// ── POST Assign Order to Freelancer ──
+// ── POST Assign Order to Freelancers (FCFS Multi-Specialist Support) ──
 adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
     const body = await c.req.json();
-    const freelancerId = Number(body.freelancerId);
+
+    let rawFreelancerIds: number[] = [];
+    if (Array.isArray(body.freelancerIds)) {
+      rawFreelancerIds = body.freelancerIds.map(Number).filter((n: number) => !isNaN(n) && n > 0);
+    } else if (body.freelancerId) {
+      const single = Number(body.freelancerId);
+      if (!isNaN(single) && single > 0) rawFreelancerIds = [single];
+    }
+
     const payoutAmount = body.payoutAmount !== undefined ? Number(body.payoutAmount) : 0;
+    const deadline = body.deadline ? sanitise(String(body.deadline)) : undefined;
+    const durationValue = body.durationValue !== undefined && body.durationValue !== '' ? Number(body.durationValue) : undefined;
+    const durationUnit = body.durationUnit ? sanitise(String(body.durationUnit)) : undefined;
+    const projectNotice = body.projectNotice ? sanitise(String(body.projectNotice)) : undefined;
 
     if (!orderId || isNaN(orderId)) {
       return c.json({ error: 'Valid order ID is required.' }, 400);
     }
-    if (!freelancerId || isNaN(freelancerId)) {
-      return c.json({ error: 'Valid freelancer ID is required.' }, 400);
+    if (rawFreelancerIds.length === 0) {
+      return c.json({ error: 'At least one valid freelancer ID is required for assignment.' }, 400);
     }
 
-    const flRecord = await db.select().from(freelancers).where(eq(freelancers.id, freelancerId)).limit(1);
-    if (flRecord.length === 0) return c.json({ error: 'Freelancer specialist not found.' }, 404);
+    // Fetch matched freelancer records
+    const allFlRecords = await db.select().from(freelancers);
+    const flRecords = allFlRecords.filter(f => rawFreelancerIds.includes(f.id));
 
-    const updated = await db.update(orders).set({
-      freelancerId,
+    if (flRecords.length === 0) {
+      return c.json({ error: 'No matching freelancer specialists found.' }, 404);
+    }
+
+    const assignedIdsJson = JSON.stringify(flRecords.map(f => f.id));
+    const isMultiCandidate = flRecords.length > 1;
+
+    const updatePayload: any = {
+      freelancerId: isMultiCandidate ? null : flRecords[0].id,
+      assignedFreelancerIds: assignedIdsJson,
       freelancerPayoutAmount: payoutAmount,
       assignmentStatus: 'pending_acceptance',
       declineReason: null,
@@ -192,11 +229,23 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
       acceptedAt: null,
       status: 'assigned',
       updatedAt: new Date().toISOString(),
-    }).where(eq(orders.id, orderId)).returning();
+    };
+
+    if (deadline !== undefined) updatePayload.deadline = deadline;
+    if (durationValue !== undefined) updatePayload.durationValue = durationValue;
+    if (durationUnit !== undefined) updatePayload.durationUnit = durationUnit;
+    if (projectNotice !== undefined) updatePayload.projectNotice = projectNotice;
+
+    const updated = await db.update(orders).set(updatePayload).where(eq(orders.id, orderId)).returning();
 
     if (updated.length === 0) {
       return c.json({ error: 'Order not found.' }, 404);
     }
+
+    const specialistNames = flRecords.map(f => f.name).join(', ');
+    const systemNotice = isMultiCandidate
+      ? `[SYSTEM] ⚡ Task offered to ${flRecords.length} specialists on a FIRST-COME FIRST-SERVE basis (${specialistNames}) with payout ₹${payoutAmount.toLocaleString('en-IN')}. First specialist to accept takes the task.`
+      : `[SYSTEM] 🎯 Task offered to specialist ${flRecords[0].name} (Payout: ₹${payoutAmount.toLocaleString('en-IN')}). Awaiting specialist review and acceptance.`;
 
     // System message audit log
     try {
@@ -204,23 +253,29 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
         orderId,
         senderId: 0,
         senderRole: 'admin',
-        messageText: `[SYSTEM] Task offered to specialist ${flRecord[0].name} (Payout: ₹${payoutAmount.toLocaleString('en-IN')}). Awaiting specialist review and acceptance.`
+        messageText: systemNotice
       });
     } catch (msgErr) {
       console.error('Failed to insert assignment audit message:', msgErr);
     }
 
-    // Send task assignment email (safe async)
-    try {
-      await sendOrderUpdateEmail(
-        flRecord[0].email,
-        flRecord[0].name,
-        orderId,
-        'New Project Offer Available — Review & Accept',
-        `You have been offered Project #${orderId} (${updated[0].serviceCategory}) with an allocated payout of ₹${payoutAmount.toLocaleString('en-IN')}. Log in to your specialist portal to review the client brief and accept the assignment.`
-      );
-    } catch (emailErr: any) {
-      console.error(`❌ Failed to send order assignment email to freelancer ${flRecord[0].email}:`, emailErr?.message || emailErr);
+    // Send task assignment emails to all invited specialists (safe async)
+    for (const fl of flRecords) {
+      try {
+        const emailBody = isMultiCandidate
+          ? `You and ${flRecords.length - 1} other vetted specialist(s) have been invited to Project #${orderId} (${updated[0].serviceCategory}) on a FIRST-COME, FIRST-SERVE basis! Payout: ₹${payoutAmount.toLocaleString('en-IN')}. Log in to review the brief and accept before others claim it.`
+          : `You have been offered Project #${orderId} (${updated[0].serviceCategory}) with an allocated payout of ₹${payoutAmount.toLocaleString('en-IN')}. Log in to your specialist portal to review the client brief and accept the assignment.`;
+
+        await sendOrderUpdateEmail(
+          fl.email,
+          fl.name,
+          orderId,
+          isMultiCandidate ? '⚡ New FCFS Project Offer Available — Claim First!' : 'New Project Offer Available — Review & Accept',
+          emailBody
+        );
+      } catch (emailErr: any) {
+        console.error(`❌ Failed to send order assignment email to freelancer ${fl.email}:`, emailErr?.message || emailErr);
+      }
     }
 
     return c.json({ data: updated[0] });
@@ -229,23 +284,31 @@ adminApp.post('/orders/:id/assign', roleGuard(['admin', 'qa_admin']), async (c) 
   }
 });
 
-// ── PATCH Update Order Price & Category/Tier ──
+// ── PATCH Update Order Price & Category/Tier/Timeline ──
 adminApp.patch('/orders/:id/price', roleGuard(['admin', 'qa_admin']), async (c) => {
   try {
     const orderId = Number(c.req.param('id'));
     const body = await c.req.json();
-    const price = Number(body.price);
+    const price = body.price !== undefined ? Number(body.price) : undefined;
     const tier = body.tier ? sanitise(body.tier) : undefined;
     const serviceCategory = body.serviceCategory ? sanitise(body.serviceCategory) : undefined;
+    const deadline = body.deadline ? sanitise(String(body.deadline)) : undefined;
+    const durationValue = body.durationValue !== undefined && body.durationValue !== '' ? Number(body.durationValue) : undefined;
+    const durationUnit = body.durationUnit ? sanitise(String(body.durationUnit)) : undefined;
+    const projectNotice = body.projectNotice ? sanitise(String(body.projectNotice)) : undefined;
 
-    if (isNaN(price) || price < 0) return c.json({ error: 'Valid price is required.' }, 400);
-
-    const updated = await db.update(orders).set({
-      price,
-      tier: tier || undefined,
-      serviceCategory: serviceCategory || undefined,
+    const setPayload: any = {
       updatedAt: new Date().toISOString(),
-    }).where(eq(orders.id, orderId)).returning();
+    };
+    if (price !== undefined && !isNaN(price) && price >= 0) setPayload.price = price;
+    if (tier) setPayload.tier = tier;
+    if (serviceCategory) setPayload.serviceCategory = serviceCategory;
+    if (deadline !== undefined) setPayload.deadline = deadline;
+    if (durationValue !== undefined) setPayload.durationValue = durationValue;
+    if (durationUnit !== undefined) setPayload.durationUnit = durationUnit;
+    if (projectNotice !== undefined) setPayload.projectNotice = projectNotice;
+
+    const updated = await db.update(orders).set(setPayload).where(eq(orders.id, orderId)).returning();
 
     if (updated.length === 0) return c.json({ error: 'Order not found.' }, 404);
 
@@ -253,7 +316,7 @@ adminApp.patch('/orders/:id/price', roleGuard(['admin', 'qa_admin']), async (c) 
       orderId,
       senderId: 0,
       senderRole: 'admin',
-      messageText: `[SYSTEM] Admin customized order price to ₹${price.toLocaleString('en-IN')}${tier ? ` (${tier.toUpperCase()} tier)` : ''}.`
+      messageText: `[SYSTEM] Admin updated project details/timeline.`
     });
 
     return c.json({ data: updated[0] });
